@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>NTEP Turfgrass Explorer</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0f172a;color:#e2e8f0;font-family:"Segoe UI",system-ui,sans-serif;}
+input,select,button{font-family:inherit;}
+details>summary{list-style:none;}
+details>summary::-webkit-details-marker{display:none;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useMemo,useCallback,useEffect} = React;
+
+/* ── constants ─────────────────────────────────────────────────────── */
+const PROXY = "https://script.google.com/macros/s/AKfycbzG478BC2WFHqYJ9C-HSg-jox3GOJxKrfy5xu-AAr3iwooa6vn2RrKSWxxOljDjIsLT/exec";
+const CK = "ntep_v5_";
+
+/* ── cache ─────────────────────────────────────────────────────────── */
+function cget(id){
+  try{const r=localStorage.getItem(CK+id);if(!r)return null;
+    const o=JSON.parse(r);
+    if(Date.now()-o.ts>30*86400000){localStorage.removeItem(CK+id);return null;}
+    return o;
+  }catch(_){return null;}
+}
+function cset(id,d){try{localStorage.setItem(CK+id,JSON.stringify({data:d,ts:Date.now()}));}catch(_){}}
+function cdel(id){try{localStorage.removeItem(CK+id);}catch(_){}}
+function chas(id){return cget(id)!==null;}
+function cage(ms){
+  const d=Math.floor(ms/86400000),h=Math.floor(ms/3600000),m=Math.floor(ms/60000);
+  return d>=1?d+"d ago":h>=1?h+"h ago":m>=1?m+"m ago":"just now";
+}
+
+
+/* ── UMN loader ────────────────────────────────────────────────────── */
+async function loadFromProxy(id, trial, onProg){
+  onProg&&onProg({msg:"Querying database...",pct:10});
+  const r=await fetch(PROXY+"?action=load_trial&trial_id="+id,{cache:"no-store"});
+  if(!r.ok) throw new Error("Proxy HTTP "+r.status);
+  const j=await r.json();
+  if(j.error) throw new Error(j.error);
+  if(!j.cultivars||j.cultivars.length===0) throw new Error("No UMN data for "+id+"all");
+  onProg&&onProg({msg:"Loaded "+j.cultivars.length+" cultivars loaded",pct:100});
+  return{...j, trialLabel:trial.label, species:trial.species, dataYears:trial.years};
+}
+
+async function proxyTest(){
+  try{
+    const r=await fetch(PROXY+"?action=load_trial&trial_id=ff14",{cache:"no-store"});
+    if(!r.ok) return{ok:false,msg:"HTTP "+r.status};
+    const j=await r.json();
+    if(j.error) return{ok:false,msg:"Error: "+j.error};
+    return{ok:true,msg:"OK - "+j.cultivars.length+" cultivars loaded (2014 Fineleaf Fescue)"};
+  }catch(e){return{ok:false,msg:"FAIL: "+e.message};}
+}
+
+/* ── trial catalogue ───────────────────────────────────────────────── */
+const TRIALS=[
+  {id:"bg19",label:"2019 Bermudagrass (2019-23)",   species:"Bermudagrass",      years:"2019-23"},
+  {id:"bg13",label:"2013 Bermudagrass (2013-17)",   species:"Bermudagrass",      years:"2013-17"},
+  {id:"bg07",label:"2007 Bermudagrass (2007-12)",   species:"Bermudagrass",      years:"2007-12"},
+  {id:"bg02",label:"2002 Bermudagrass (2002-06)",   species:"Bermudagrass",      years:"2002-06"},
+  {id:"bg97",label:"1997 Bermudagrass (1997-01)",   species:"Bermudagrass",      years:"1997-01"},
+  {id:"bt20g",label:"2020 Bentgrass Putting Green", species:"Bentgrass",         years:"2021-24"},
+  {id:"bt14g",label:"2014 Bentgrass Putting Green", species:"Bentgrass",         years:"2015-19"},
+  {id:"bt20f",label:"2020 Bentgrass Fairway/Tee",   species:"Bentgrass",         years:"2021-24"},
+  {id:"bt14f",label:"2014 Bentgrass Fairway/Tee",   species:"Bentgrass",         years:"2015-19"},
+  {id:"bu02",label:"2002 Buffalograss (2002-06)",   species:"Buffalograss",      years:"2002-06"},
+  {id:"bu96",label:"1996 Buffalograss (1996-00)",   species:"Buffalograss",      years:"1996-00"},
+  {id:"bu91",label:"1991 Buffalograss (1992-95)",   species:"Buffalograss",      years:"1992-95"},
+  {id:"ff20",label:"2020 Fineleaf Fescue (2021-24)",species:"Fineleaf Fescue",   years:"2021-24"},
+  {id:"ff14",label:"2014 Fineleaf Fescue (2015-19)",species:"Fineleaf Fescue",   years:"2015-19"},
+  {id:"ff08",label:"2008 Fineleaf Fescue (2008-13)",species:"Fineleaf Fescue",   years:"2008-13"},
+  {id:"ff03",label:"2003 Fineleaf Fescue (2003-07)",species:"Fineleaf Fescue",   years:"2003-07"},
+  {id:"ff98",label:"1998 Fineleaf Fescue (1998-02)",species:"Fineleaf Fescue",   years:"1998-02"},
+  {id:"kb23",label:"2023 Kentucky Bluegrass (2024-25)",species:"Kentucky Bluegrass",years:"2024-25"},
+  {id:"kb17",label:"2017 Kentucky Bluegrass (2018-22)",species:"Kentucky Bluegrass",years:"2018-22"},
+  {id:"kb11",label:"2011 Kentucky Bluegrass (2012-16)",species:"Kentucky Bluegrass",years:"2012-16"},
+  {id:"kb05",label:"2005 Kentucky Bluegrass (2006-10)",species:"Kentucky Bluegrass",years:"2006-10"},
+  {id:"kb00",label:"2000 Kentucky Bluegrass (2001-05)",species:"Kentucky Bluegrass",years:"2001-05"},
+  {id:"kb95h",label:"1995 KBG High Input (1996-00)",   species:"Kentucky Bluegrass",years:"1996-00"},
+  {id:"kb90h",label:"1990 KBG High Input (1991-95)",   species:"Kentucky Bluegrass",years:"1991-95"},
+  {id:"pr22",label:"2022 Perennial Ryegrass (2023-25)",species:"Perennial Ryegrass",years:"2023-25"},
+  {id:"pr16",label:"2016 Perennial Ryegrass (2017-21)",species:"Perennial Ryegrass",years:"2017-21"},
+  {id:"pr10",label:"2010 Perennial Ryegrass (2010-14)",species:"Perennial Ryegrass",years:"2010-14"},
+  {id:"pr04",label:"2004 Perennial Ryegrass (2005-09)",species:"Perennial Ryegrass",years:"2005-09"},
+  {id:"pr99",label:"1999 Perennial Ryegrass (1999-03)",species:"Perennial Ryegrass",years:"1999-03"},
+  {id:"sa23",label:"2023 St. Augustinegrass (2023-25)",species:"St. Augustinegrass",years:"2023-25"},
+  {id:"sa16",label:"2016 St. Augustinegrass (2017-20)",species:"St. Augustinegrass",years:"2017-20"},
+  {id:"sa07",label:"2007 St. Augustinegrass (2007-12)",species:"St. Augustinegrass",years:"2007-12"},
+  {id:"sp23",label:"2023 Seashore Paspalum (2023-25)", species:"Seashore Paspalum", years:"2023-25"},
+  {id:"sp16",label:"2016 Seashore Paspalum (2016-20)", species:"Seashore Paspalum", years:"2016-20"},
+  {id:"tf18",label:"2018 Tall Fescue (2019-23)",    species:"Tall Fescue",       years:"2019-23"},
+  {id:"tf12",label:"2012 Tall Fescue (2012-17)",    species:"Tall Fescue",       years:"2012-17"},
+  {id:"tf06",label:"2006 Tall Fescue (2006-11)",    species:"Tall Fescue",       years:"2006-11"},
+  {id:"tf01",label:"2001 Tall Fescue (2001-05)",    species:"Tall Fescue",       years:"2001-05"},
+  {id:"zg19",label:"2019 Zoysiagrass (2019-23)",    species:"Zoysiagrass",       years:"2019-23"},
+  {id:"zg13",label:"2013 Zoysiagrass (2013-17)",    species:"Zoysiagrass",       years:"2013-17"},
+  {id:"zg07",label:"2007 Zoysiagrass (2007-12)",    species:"Zoysiagrass",       years:"2007-12"},
+  {id:"zg02",label:"2002 Zoysiagrass (2002-06)",    species:"Zoysiagrass",       years:"2002-06"},
+];
+const SPECIES=[...new Set(TRIALS.map(t=>t.species))].sort();
+
+/* ── demo data fallback (kb17 & pr22) ─────────────────────────────── */
+const DEMO={
+  kb17:{trialId:"kb17",trialLabel:"2017 Kentucky Bluegrass (2018-22)",species:"Kentucky Bluegrass",dataYears:"2018-22",
+    vars:["QUALITY Overall","GENETIC COLOR","LEAF TEXTURE","DENSITY Spring","DISEASES Dollar spot"],
+    sites:["MN1","WI1","MI1","OH1","PA1","VA1","MEAN"],lsds:{"QUALITY Overall":0.4},
+    cultivars:[
+      {name:"STARR (GO-2628)",ca:true,vars:{"QUALITY Overall":{MEAN:6.6,MN1:6.8,WI1:6.5,MI1:6.4,OH1:6.3,PA1:6.7,VA1:8.1},"GENETIC COLOR":{MEAN:7.3},"LEAF TEXTURE":{MEAN:6.8},"DENSITY Spring":{MEAN:7.0},"DISEASES Dollar spot":{MEAN:6.5}}},
+      {name:"AFTER MIDNIGHT",ca:true,vars:{"QUALITY Overall":{MEAN:6.4,MN1:6.5,WI1:6.3,MI1:7.2,OH1:6.0,PA1:6.3,VA1:6.1},"GENETIC COLOR":{MEAN:8.1},"LEAF TEXTURE":{MEAN:6.5},"DENSITY Spring":{MEAN:7.0},"DISEASES Dollar spot":{MEAN:5.8}}},
+      {name:"MIDNIGHT",ca:true,vars:{"QUALITY Overall":{MEAN:6.2,MN1:6.3,WI1:6.2,MI1:6.9,OH1:6.0,PA1:6.2,VA1:6.6},"GENETIC COLOR":{MEAN:8.3},"LEAF TEXTURE":{MEAN:6.3},"DENSITY Spring":{MEAN:6.8},"DISEASES Dollar spot":{MEAN:5.9}}},
+      {name:"SKYE",ca:true,vars:{"QUALITY Overall":{MEAN:6.3,MN1:6.1,WI1:6.0,MI1:6.4,OH1:6.1,PA1:6.3,VA1:7.7},"GENETIC COLOR":{MEAN:6.9},"LEAF TEXTURE":{MEAN:6.3},"DENSITY Spring":{MEAN:6.6},"DISEASES Dollar spot":{MEAN:6.3}}},
+      {name:"BLUE DEVIL",ca:true,vars:{"QUALITY Overall":{MEAN:6.1,MN1:6.0,WI1:5.9,MI1:6.4,OH1:5.9,PA1:6.1,VA1:6.6},"GENETIC COLOR":{MEAN:7.1},"LEAF TEXTURE":{MEAN:5.9},"DENSITY Spring":{MEAN:6.4},"DISEASES Dollar spot":{MEAN:6.0}}},
+      {name:"PROSPERITY",ca:true,vars:{"QUALITY Overall":{MEAN:5.6,MN1:5.5,WI1:5.4,MI1:6.4,OH1:5.5,PA1:5.6,VA1:5.9},"GENETIC COLOR":{MEAN:6.5},"LEAF TEXTURE":{MEAN:5.5},"DENSITY Spring":{MEAN:5.9},"DISEASES Dollar spot":{MEAN:5.5}}},
+      {name:"KENBLUE",ca:true,vars:{"QUALITY Overall":{MEAN:5.0,MN1:4.9,WI1:4.8,MI1:5.4,OH1:4.7,PA1:4.9,VA1:6.3},"GENETIC COLOR":{MEAN:5.8},"LEAF TEXTURE":{MEAN:4.9},"DENSITY Spring":{MEAN:5.2},"DISEASES Dollar spot":{MEAN:4.9}}},
+    ],_demo:true},
+  pr22:{trialId:"pr22",trialLabel:"2022 Perennial Ryegrass (2023-25)",species:"Perennial Ryegrass",dataYears:"2023-25",
+    vars:["QUALITY Overall","GENETIC COLOR","LEAF TEXTURE","DISEASES Crown rust"],
+    sites:["MA1","NJ1","OH1","OR1","VA1","WI1","MEAN"],lsds:{"QUALITY Overall":0.3},
+    cultivars:[
+      {name:"ACCENT II",ca:true,vars:{"QUALITY Overall":{MEAN:7.1,MA1:7.0,NJ1:7.2,OH1:7.0,OR1:7.3,VA1:7.1,WI1:6.9},"GENETIC COLOR":{MEAN:7.8},"LEAF TEXTURE":{MEAN:7.0},"DISEASES Crown rust":{MEAN:7.5}}},
+      {name:"BRIGHTSTAR SLT",ca:true,vars:{"QUALITY Overall":{MEAN:7.0,MA1:6.9,NJ1:7.1,OH1:6.9,OR1:7.2,VA1:7.0,WI1:6.8},"GENETIC COLOR":{MEAN:7.6},"LEAF TEXTURE":{MEAN:6.8},"DISEASES Crown rust":{MEAN:7.4}}},
+      {name:"FIESTA V",ca:true,vars:{"QUALITY Overall":{MEAN:6.9,MA1:6.8,NJ1:7.0,OH1:6.8,OR1:7.1,VA1:6.9,WI1:6.7},"GENETIC COLOR":{MEAN:7.5},"LEAF TEXTURE":{MEAN:6.7},"DISEASES Crown rust":{MEAN:7.3}}},
+      {name:"LINN",ca:true,vars:{"QUALITY Overall":{MEAN:6.7,MA1:6.6,NJ1:6.8,OH1:6.7,OR1:6.9,VA1:6.7,WI1:6.5},"GENETIC COLOR":{MEAN:7.2},"LEAF TEXTURE":{MEAN:6.5},"DISEASES Crown rust":{MEAN:7.1}}},
+      {name:"SILVERDOLLAR",ca:true,vars:{"QUALITY Overall":{MEAN:6.5,MA1:6.4,NJ1:6.6,OH1:6.5,OR1:6.7,VA1:6.5,WI1:6.3},"GENETIC COLOR":{MEAN:7.0},"LEAF TEXTURE":{MEAN:6.3},"DISEASES Crown rust":{MEAN:6.9}}},
+    ],_demo:true},
+};
+
+/* ── global cultivar index (for By Cultivar tab) ───────────────────── */
+const CIDX={
+  "MIDNIGHT":            [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.2,ca:true},{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "AFTER MIDNIGHT":      [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.4,ca:true},{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "STARR (GO-2628)":     [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.6,ca:true}],
+  "SKYE":                [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.3,ca:true},{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "BLUE DEVIL":          [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.1,ca:true}],
+  "PROSPERITY":          [{id:"kb17",sp:"Kentucky Bluegrass",mean:5.6,ca:true}],
+  "KENBLUE":             [{id:"kb17",sp:"Kentucky Bluegrass",mean:5.0,ca:true},{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "BARON":               [{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true},{id:"kb05",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "ACCENT II":           [{id:"pr22",sp:"Perennial Ryegrass",mean:7.1,ca:true},{id:"pr16",sp:"Perennial Ryegrass",mean:null,ca:true}],
+  "BRIGHTSTAR SLT":      [{id:"pr22",sp:"Perennial Ryegrass",mean:7.0,ca:true}],
+  "FIESTA V":            [{id:"pr22",sp:"Perennial Ryegrass",mean:6.9,ca:true},{id:"pr16",sp:"Perennial Ryegrass",mean:null,ca:true}],
+  "LINN":                [{id:"pr22",sp:"Perennial Ryegrass",mean:6.7,ca:true}],
+  "SILVERDOLLAR":        [{id:"pr22",sp:"Perennial Ryegrass",mean:6.5,ca:true}],
+  "FALCON V":            [{id:"tf18",sp:"Tall Fescue",mean:null,ca:true},{id:"tf12",sp:"Tall Fescue",mean:null,ca:true}],
+  "ECLIPSE":             [{id:"tf18",sp:"Tall Fescue",mean:null,ca:true},{id:"tf12",sp:"Tall Fescue",mean:null,ca:true}],
+  "CELEBRATION":         [{id:"bg19",sp:"Bermudagrass",mean:null,ca:true},{id:"bg13",sp:"Bermudagrass",mean:null,ca:true}],
+  "PATRIOT":             [{id:"bg13",sp:"Bermudagrass",mean:null,ca:true},{id:"bg07",sp:"Bermudagrass",mean:null,ca:true}],
+  "TIFWAY":              [{id:"bg07",sp:"Bermudagrass",mean:null,ca:true},{id:"bg02",sp:"Bermudagrass",mean:null,ca:true}],
+  "MEYER":               [{id:"zg19",sp:"Zoysiagrass",mean:null,ca:true},{id:"zg13",sp:"Zoysiagrass",mean:null,ca:true}],
+  "EMERALD":             [{id:"zg19",sp:"Zoysiagrass",mean:null,ca:true},{id:"zg13",sp:"Zoysiagrass",mean:null,ca:true}],
+  "PALISADES":           [{id:"zg19",sp:"Zoysiagrass",mean:null,ca:true},{id:"zg13",sp:"Zoysiagrass",mean:null,ca:true}],
+  "FLORATAM":            [{id:"sa23",sp:"St. Augustinegrass",mean:null,ca:true},{id:"sa16",sp:"St. Augustinegrass",mean:null,ca:true}],
+  "PALMETTO":            [{id:"sa23",sp:"St. Augustinegrass",mean:null,ca:true},{id:"sa16",sp:"St. Augustinegrass",mean:null,ca:true}],
+};
+
+/* ── UI helpers ────────────────────────────────────────────────────── */
+function sc(v){return v>=7?"#22c55e":v>=6?"#84cc16":v>=5?"#eab308":v>=4?"#f97316":"#ef4444";}
+
+function ScoreBar({value,compact}){
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:"6px",width:"100%"}}>
+      <div style={{flex:1,background:"#0f172a",borderRadius:"4px",height:compact?"5px":"8px",overflow:"hidden"}}>
+        <div style={{width:Math.min(100,value/9*100)+"%",height:"100%",background:sc(value),borderRadius:"4px"}}/>
+      </div>
+      {!compact && <span style={{fontSize:"13px",fontWeight:700,color:sc(value),minWidth:"28px",textAlign:"right"}}>{value.toFixed(1)}</span>}
+    </div>
+  );
+}
+
+function Rank({rank,total}){
+  const p=rank/total;
+  const bg=p<=0.25?"#16a34a":p<=0.5?"#65a30d":p<=0.75?"#d97706":"#dc2626";
+  return <span style={{background:bg,color:"#fff",borderRadius:"999px",fontSize:"10px",fontWeight:700,padding:"2px 6px",whiteSpace:"nowrap"}}>#{rank}/{total}</span>;
+}
+
+function Tag({text,bg="#334155"}){
+  return <span style={{background:bg,color:"#fff",borderRadius:"4px",fontSize:"10px",fontWeight:600,padding:"2px 5px",whiteSpace:"nowrap"}}>{text}</span>;
+}
+
+function Pill({active,onClick,label}){
+  return (
+    <button onClick={onClick} style={{padding:"3px 8px",borderRadius:"5px",fontSize:"11px",fontWeight:600,cursor:"pointer",border:active?"2px solid #22c55e":"1px solid #334155",background:active?"rgba(34,197,94,.1)":"#0f172a",color:active?"#22c55e":"#64748b"}}>
+      {label}
+    </button>
+  );
+}
+
+function getRanks(cultivars,vk,site){
+  let sc2=cultivars.map(c=>({name:c.name,v:c.vars[vk]?.[site]??null})).filter(x=>x.v!==null);
+  const fb=sc2.length===0&&site!=="MEAN";
+  if(fb) sc2=cultivars.map(c=>({name:c.name,v:c.vars[vk]?.MEAN??null})).filter(x=>x.v!==null);
+  sc2.sort((a,b)=>b.v-a.v);
+  const r={}; sc2.forEach((c,i)=>r[c.name]=i+1);
+  return{r,total:sc2.length,fb};
+}
+
+function isTop(val,all,lsd){
+  return lsd&&all.length>0?(Math.max(...all)-val)<=lsd:false;
+}
+
+/* ── App ─────────────────────────────────────────────────────────────── */
+function App(){
+  const [tab,setTab]         = useState("trial");
+  const [view,setView]       = useState("list");   /* list|loading|trial|error */
+  const [selId,setSelId]     = useState(null);
+  const [prog,setProg]       = useState({msg:"",pct:0});
+  const [errMsg,setErrMsg]   = useState("");
+  const [data,setData]       = useState(null);
+  const [cacheAge,setCacheAge]=useState(null);
+  const [selVars,setSelVars] = useState(["QUALITY Overall"]);
+  const [sortV,setSortV]     = useState("QUALITY Overall");
+  const [site,setSite]       = useState("MEAN");
+  const [cvSearch,setCvSearch]= useState("");
+  const [showNC,setShowNC]   = useState(true);
+  const [pinned,setPinned]   = useState(null);
+  const [compared,setCompared]= useState([]);
+  const [overrides,setOverrides]=useState({});
+  const [sfDraft,setSfDraft] = useState("");
+  const [showSet,setShowSet] = useState(false);
+  const [ptRes,setPtRes]     = useState(null);
+  const [ptLoading,setPtLoading]=useState(false);
+  const [globQ,setGlobQ]     = useState("");
+  const [selSp,setSelSp]     = useState(null);
+  const [aiQ,setAiQ]         = useState("");
+  const [aiR,setAiR]         = useState("");
+  const [aiLoad,setAiLoad]   = useState(false);
+  const [aiOpen,setAiOpen]   = useState(false);
+  const [tSearch,setTSearch] = useState("");
+
+  useEffect(()=>{
+    try{const s=localStorage.getItem("ntep_sf_v3");if(s)setOverrides(JSON.parse(s));}catch(_){}
+  },[]);
+
+  const saveOverrides=(ov)=>{
+    setOverrides(ov);
+    try{localStorage.setItem("ntep_sf_v3",JSON.stringify(ov));}catch(_){}
+  };
+
+  const go=useCallback(async(id,force=false)=>{
+    const trial=TRIALS.find(t=>t.id===id);
+    if(!trial) return;
+    setSelId(id); setPinned(null); setCompared([]); setSite("MEAN");
+    setCvSearch(""); setErrMsg(""); setPtRes(null);
+    setSfDraft(overrides[id]||"");
+
+    if(!force){
+      const hit=cget(id);
+      if(hit){
+        setData(hit.data); setCacheAge(Date.now()-hit.ts);
+        setSelVars([hit.data.vars[0]||"QUALITY Overall"]);
+        setSortV(hit.data.vars[0]||"QUALITY Overall");
+        setView("trial"); setTab("trial"); return;
+      }
+    }
+
+    setView("loading"); setTab("trial"); setProg({msg:"Starting...",pct:0});
+
+    try{
+      const d=await loadFromProxy(id,trial,p=>setProg(p));
+      cset(id,d); setData(d); setCacheAge(null);
+      setSelVars([d.vars[0]||"QUALITY Overall"]);
+      setSortV(d.vars[0]||"QUALITY Overall");
+      setView("trial");
+    }catch(e){
+      if(DEMO[id]){
+        setData(DEMO[id]); setCacheAge(null);
+        setSelVars(["QUALITY Overall"]); setSortV("QUALITY Overall");
+        setView("trial");
+        setErrMsg("Live load failed — showing demo data.\n"+e.message);
+      } else {
+        setErrMsg(e.message); setView("error");
+      }
+    }
+  },[overrides]);
+
+  /* filtered + sorted cultivars */
+  const filtered=useMemo(()=>{
+    if(!data) return [];
+    let list=data.cultivars;
+    if(!showNC) list=list.filter(c=>c.ca);
+    if(cvSearch.trim()){const q=cvSearch.toLowerCase();list=list.filter(c=>c.name.toLowerCase().includes(q));}
+    return [...list].sort((a,b)=>(b.vars[sortV]?.[site]??-1)-(a.vars[sortV]?.[site]??-1));
+  },[data,showNC,cvSearch,sortV,site]);
+
+  const displayed=useMemo(()=>{
+    if(!pinned) return filtered;
+    const p=filtered.find(c=>c.name===pinned);
+    return p?[p,...filtered.filter(c=>c.name!==pinned)]:filtered;
+  },[filtered,pinned]);
+
+  /* global cultivar search results */
+  const globResults=useMemo(()=>{
+    const q=globQ.trim().toLowerCase();
+    if(q.length<2) return [];
+    return Object.entries(CIDX).filter(([n])=>n.toLowerCase().includes(q));
+  },[globQ]);
+
+  /* trial list */
+  const trialList=useMemo(()=>{
+    if(!tSearch.trim()) return TRIALS;
+    const q=tSearch.toLowerCase();
+    return TRIALS.filter(t=>t.label.toLowerCase().includes(q)||t.species.toLowerCase().includes(q));
+  },[tSearch]);
+
+  /* AI */
+  const askAI=async()=>{
+    if(!aiQ.trim()) return;
+    setAiLoad(true); setAiR("");
+    try{
+      const ctx=data
+        ?"Trial: "+data.trialLabel+". Top: "+data.cultivars.slice(0,5).map(c=>c.name+"="+(c.vars["QUALITY Overall"]?.MEAN??"-")).join(", ")
+        :"No trial loaded.";
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,
+          system:"Expert turfgrass scientist. NTEP ratings 1-9 (9=ideal). Be concise. Context: "+ctx,
+          messages:[{role:"user",content:aiQ}]})
+      });
+      const j=await res.json();
+  
