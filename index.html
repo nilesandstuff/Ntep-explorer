@@ -42,9 +42,9 @@ function cage(ms){
 
 
 /* ── UMN loader ────────────────────────────────────────────────────── */
-async function loadFromProxy(id, trial, onProg){
+async function loadFromProxy(id, trial, onProg, force=false){
   onProg&&onProg({msg:"Querying UMN NTEP database...",pct:10});
-  const r=await fetch(PROXY+"?action=load_trial&trial_id="+id,{cache:"no-store"});
+  const r=await fetch(PROXY+"?action=load_trial&trial_id="+id+(force?"&force=1":""),{cache:"no-store"});
   if(!r.ok) throw new Error("Proxy HTTP "+r.status);
   const j=await r.json();
   if(j.error) throw new Error(j.error);
@@ -266,7 +266,7 @@ function App(){
     setView("loading"); setTab("trial"); setProg({msg:"Starting...",pct:0});
 
     try{
-      const d=await loadFromProxy(id,trial,p=>setProg(p));
+      const d=await loadFromProxy(id,trial,p=>setProg(p),force);
       cset(id,d); setData(d); setCacheAge(null);
       setSelVars([d.vars[0]||"QUALITY Overall"]);
       setSortV(d.vars[0]||"QUALITY Overall");
@@ -336,8 +336,8 @@ function App(){
   function CultivarCard({c}){
     const ip=c.name===pinned;
     const ic=compared.includes(c.name);
-    const allMeans=data.cultivars.map(x=>x.vars["QUALITY Overall"]?.[site]).filter(Boolean);
-    const lsd=data.lsds?.["QUALITY Overall"]||0;
+    const allMeans=data.cultivars.map(x=>x.vars[sortV]?.[site]).filter(Boolean);
+    const lsd=data.lsds?.[sortV]||0;
     const topGrp=isTop(c.vars["QUALITY Overall"]?.[site],allMeans,lsd);
     return (
       <div style={{position:ip?"sticky":"relative",top:ip?0:undefined,zIndex:ip?20:1,
