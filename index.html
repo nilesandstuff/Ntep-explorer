@@ -22,13 +22,13 @@ const {useState,useMemo,useCallback,useEffect} = React;
 
 /* ── constants ─────────────────────────────────────────────────────── */
 const PROXY = "https://script.google.com/macros/s/AKfycbzG478BC2WFHqYJ9C-HSg-jox3GOJxKrfy5xu-AAr3iwooa6vn2RrKSWxxOljDjIsLT/exec";
-const CK = "ntep_v5_";
+const CK = "ntep_v6_";
 
 /* ── cache ─────────────────────────────────────────────────────────── */
 function cget(id){
   try{const r=localStorage.getItem(CK+id);if(!r)return null;
     const o=JSON.parse(r);
-    if(Date.now()-o.ts>30*86400000){localStorage.removeItem(CK+id);return null;}
+    if(Date.now()-o.ts>30*60*1000){localStorage.removeItem(CK+id);return null;}
     return o;
   }catch(_){return null;}
 }
@@ -43,13 +43,13 @@ function cage(ms){
 
 /* ── UMN loader ────────────────────────────────────────────────────── */
 async function loadFromProxy(id, trial, onProg, force=false){
-  onProg&&onProg({msg:"Querying UMN NTEP database...",pct:10});
+  onProg&&onProg({msg:"Fetching NTEP trial data...",pct:10});
   const r=await fetch(PROXY+"?action=load_trial&trial_id="+id+(force?"&force=1":""),{cache:"no-store"});
   if(!r.ok) throw new Error("Proxy HTTP "+r.status);
   const j=await r.json();
   if(j.error) throw new Error(j.error);
   if(!j.cultivars||j.cultivars.length===0) throw new Error("No UMN data for "+id+"all");
-  onProg&&onProg({msg:"Loaded "+j.cultivars.length+" cultivars from UMN",pct:100});
+  onProg&&onProg({msg:"Loaded "+j.cultivars.length+" cultivars from NTEP",pct:100});
   return{...j, trialLabel:trial.label, species:trial.species, dataYears:trial.years};
 }
 
@@ -59,7 +59,7 @@ async function proxyTest(){
     if(!r.ok) return{ok:false,msg:"HTTP "+r.status};
     const j=await r.json();
     if(j.error) return{ok:false,msg:"Error: "+j.error};
-    return{ok:true,msg:"OK - "+j.cultivars.length+" cultivars loaded (2014 Fineleaf Fescue via UMN)"};
+    return{ok:true,msg:"OK - "+j.cultivars.length+" cultivars loaded (2014 Fineleaf Fescue via NTEP)"};
   }catch(e){return{ok:false,msg:"FAIL: "+e.message};}
 }
 
@@ -88,12 +88,17 @@ const TRIALS=[
   {id:"kb05",label:"2005 Kentucky Bluegrass (2006-10)",species:"Kentucky Bluegrass",years:"2006-10"},
   {id:"kb00",label:"2000 Kentucky Bluegrass (2001-05)",species:"Kentucky Bluegrass",years:"2001-05"},
   {id:"kb95h",label:"1995 KBG High Input (1996-00)",   species:"Kentucky Bluegrass",years:"1996-00"},
+  {id:"kb95l",label:"1995 KBG Low Input (1996-00)",    species:"Kentucky Bluegrass",years:"1996-00"},
   {id:"kb90h",label:"1990 KBG High Input (1991-95)",   species:"Kentucky Bluegrass",years:"1991-95"},
+  {id:"kb90l",label:"1990 KBG Low Input (1991-95)",    species:"Kentucky Bluegrass",years:"1991-95"},
   {id:"pr22",label:"2022 Perennial Ryegrass (2023-25)",species:"Perennial Ryegrass",years:"2023-25"},
   {id:"pr16",label:"2016 Perennial Ryegrass (2017-21)",species:"Perennial Ryegrass",years:"2017-21"},
   {id:"pr10",label:"2010 Perennial Ryegrass (2010-14)",species:"Perennial Ryegrass",years:"2010-14"},
   {id:"pr04",label:"2004 Perennial Ryegrass (2005-09)",species:"Perennial Ryegrass",years:"2005-09"},
   {id:"pr99",label:"1999 Perennial Ryegrass (1999-03)",species:"Perennial Ryegrass",years:"1999-03"},
+  {id:"cs22w",label:"2022 Cool-Season Water Use (2023-25)",species:"Cool-Season Water Use",years:"2023-25"},
+  {id:"cs16w",label:"2016 Cool-Season Water Use (2017-20)",species:"Cool-Season Water Use",years:"2017-20"},
+  {id:"cs15l",label:"2015 Cool-Season Low Input (2015-20)",species:"Cool-Season Low Input",years:"2015-20"},
   {id:"sa23",label:"2023 St. Augustinegrass (2023-25)",species:"St. Augustinegrass",years:"2023-25"},
   {id:"sa16",label:"2016 St. Augustinegrass (2017-20)",species:"St. Augustinegrass",years:"2017-20"},
   {id:"sa07",label:"2007 St. Augustinegrass (2007-12)",species:"St. Augustinegrass",years:"2007-12"},
@@ -221,35 +226,26 @@ function App(){
   const [sortV,setSortV]     = useState("QUALITY Overall");
   const [site,setSite]       = useState("MEAN");
   const [cvSearch,setCvSearch]= useState("");
-  const [showNC,setShowNC]   = useState(true);
-  const [pinned,setPinned]   = useState(null);
+  const [showNC,setShowNC]   = useState(false);
   const [compared,setCompared]= useState([]);
   const [overrides,setOverrides]=useState({});
-  const [sfDraft,setSfDraft] = useState("");
-  const [showSet,setShowSet] = useState(false);
-  const [ptRes,setPtRes]     = useState(null);
-  const [ptLoading,setPtLoading]=useState(false);
+
+
   const [globQ,setGlobQ]     = useState("");
   const [selSp,setSelSp]     = useState(null);
-  const [aiQ,setAiQ]         = useState("");
-  const [aiR,setAiR]         = useState("");
-  const [aiLoad,setAiLoad]   = useState(false);
-  const [aiOpen,setAiOpen]   = useState(false);
+
   const [tSearch,setTSearch] = useState("");
 
   useEffect(()=>{
     try{const s=localStorage.getItem("ntep_sf_v3");if(s)setOverrides(JSON.parse(s));}catch(_){}
   },[]);
 
-  const saveOverrides=(ov)=>{
-    setOverrides(ov);
-    try{localStorage.setItem("ntep_sf_v3",JSON.stringify(ov));}catch(_){}
-  };
+
 
   const go=useCallback(async(id,force=false)=>{
     const trial=TRIALS.find(t=>t.id===id);
     if(!trial) return;
-    setSelId(id); setPinned(null); setCompared([]); setSite("MEAN");
+    setSelId(id); setCompared([]); setSite("MEAN");
     setCvSearch(""); setErrMsg(""); setPtRes(null);
     setSfDraft(overrides[id]||"");
 
@@ -292,12 +288,6 @@ function App(){
     return [...list].sort((a,b)=>(b.vars[sortV]?.[site]??-1)-(a.vars[sortV]?.[site]??-1));
   },[data,showNC,cvSearch,sortV,site]);
 
-  const displayed=useMemo(()=>{
-    if(!pinned) return filtered;
-    const p=filtered.find(c=>c.name===pinned);
-    return p?[p,...filtered.filter(c=>c.name!==pinned)]:filtered;
-  },[filtered,pinned]);
-
   /* global cultivar search results */
   const globResults=useMemo(()=>{
     const q=globQ.trim().toLowerCase();
@@ -312,43 +302,103 @@ function App(){
     return TRIALS.filter(t=>t.label.toLowerCase().includes(q)||t.species.toLowerCase().includes(q));
   },[tSearch]);
 
-  /* AI */
-  const askAI=async()=>{
-    if(!aiQ.trim()) return;
-    setAiLoad(true); setAiR("");
-    try{
-      const ctx=data
-        ?"Trial: "+data.trialLabel+". Top: "+data.cultivars.slice(0,5).map(c=>c.name+"="+(c.vars["QUALITY Overall"]?.MEAN??"-")).join(", ")
-        :"No trial loaded.";
-      const res=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,
-          system:"Expert turfgrass scientist. NTEP ratings 1-9 (9=ideal). Be concise. Context: "+ctx,
-          messages:[{role:"user",content:aiQ}]})
-      });
-      const j=await res.json();
-      setAiR(j.content?.[0]?.text||"No response.");
-    }catch(_){setAiR("Error reaching AI.");}
-    setAiLoad(false);
-  };
+
+
+
+  /* Cross-trial history — scans localStorage for this cultivar in other cached trials */
+  function CrossTrialHistory({name, currentVar, currentSite}) {
+    const [rows, setRows] = useState(null);
+    useEffect(()=>{
+      const results = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key || !key.startsWith(CK)) continue;
+          const tid = key.slice(CK.length);
+          if (tid === selId) continue; // skip current trial
+          const cached = JSON.parse(localStorage.getItem(key));
+          const td = cached?.data;
+          if (!td?.cultivars) continue;
+          const cv = td.cultivars.find(c => c.name === name);
+          if (!cv) continue;
+          const qMean = cv.vars?.['QUALITY Overall']?.MEAN;
+          // compute quality rank
+          let qRank=null, qTotal=0;
+          if (qMean != null) {
+            const scores = td.cultivars.map(c=>c.vars?.['QUALITY Overall']?.MEAN).filter(v=>v!=null).sort((a,b)=>b-a);
+            qTotal = scores.length;
+            qRank  = scores.findIndex(s=>s===qMean) + 1;
+          }
+          // current variable value at current site (fall back to MEAN)
+          const cvVal = cv.vars?.[currentVar]?.[currentSite] ?? cv.vars?.[currentVar]?.MEAN ?? null;
+          // compute current var rank
+          let cvRank=null, cvTotal=0;
+          if (cvVal != null) {
+            const scores = td.cultivars.map(c=>c.vars?.[currentVar]?.[currentSite]??c.vars?.[currentVar]?.MEAN).filter(v=>v!=null).sort((a,b)=>b-a);
+            cvTotal = scores.length;
+            cvRank  = scores.findIndex(s=>s===cvVal) + 1;
+          }
+          results.push({tid, label:td.trialLabel||tid, species:td.species, qMean, qRank, qTotal, cvVal, cvRank, cvTotal});
+        }
+      } catch(_) {}
+      results.sort((a,b)=>(b.qMean||0)-(a.qMean||0));
+      setRows(results);
+    }, [name, currentVar, currentSite]);
+
+    if (!rows) return <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>Loading...</div>;
+    if (rows.length === 0) return (
+      <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>
+        No other loaded trials contain this cultivar. Load more trials to see cross-trial history.
+      </div>
+    );
+    const sc2 = v => v>=7?"#22c55e":v>=6?"#84cc16":v>=5?"#eab308":"#ef4444";
+    return (
+      <div style={{marginTop:'8px'}}>
+        <div style={{fontSize:'10px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:'5px'}}>
+          In other loaded trials
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
+          {rows.map(r=>(
+            <div key={r.tid} style={{background:'#0f172a',borderRadius:'6px',padding:'7px 10px',fontSize:'11px'}}>
+              <div style={{fontWeight:600,color:'#cbd5e1',marginBottom:'3px'}}>{r.label}</div>
+              <div style={{display:'flex',gap:'12px',flexWrap:'wrap'}}>
+                {r.qMean!=null && (
+                  <span>
+                    <span style={{color:'#475569'}}>Quality: </span>
+                    <span style={{fontWeight:700,color:sc2(r.qMean)}}>{r.qMean.toFixed(1)}</span>
+                    {r.qRank!=null && <span style={{color:'#475569'}}> #{r.qRank}/{r.qTotal}</span>}
+                  </span>
+                )}
+                {r.cvVal!=null && currentVar!=='QUALITY Overall' && (
+                  <span>
+                    <span style={{color:'#475569'}}>{currentVar.split(' ').slice(-1)[0]}: </span>
+                    <span style={{fontWeight:700,color:sc2(r.cvVal)}}>{r.cvVal.toFixed(1)}</span>
+                    {r.cvRank!=null && <span style={{color:'#475569'}}> #{r.cvRank}/{r.cvTotal}</span>}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   /* CultivarCard — defined as a regular function inside App so it has closure */
   function CultivarCard({c}){
-    const ip=c.name===pinned;
-    const ic=compared.includes(c.name);
+        const ic=compared.includes(c.name);
     const allMeans=data.cultivars.map(x=>x.vars[sortV]?.[site]).filter(Boolean);
     const lsd=data.lsds?.[sortV]||0;
     const topGrp=isTop(c.vars["QUALITY Overall"]?.[site],allMeans,lsd);
     return (
       <div style={{position:ip?"sticky":"relative",top:ip?0:undefined,zIndex:ip?20:1,
         background:ip?"#081810":"#1e293b",borderRadius:"9px",padding:"11px 12px",marginBottom:"6px",
-        border:ip?"2px solid #22c55e":ic?"2px solid #3b82f6":"1px solid #334155",
-        boxShadow:ip?"0 4px 20px rgba(0,0,0,.7)":"none"}}>
+        border:ic?"2px solid #3b82f6":"1px solid #334155",
+        boxShadow:"none"}}>
         <div style={{display:"flex",justifyContent:"space-between",gap:"7px",marginBottom:"7px"}}>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",alignItems:"center",gap:"5px",flexWrap:"wrap"}}>
-              {ip&&<span style={{fontSize:"11px",color:"#22c55e",fontWeight:700}}>[PIN]</span>}
-              <span style={{fontWeight:700,fontSize:"13px",color:ip?"#22c55e":"#f1f5f9",wordBreak:"break-word"}}>{c.name}</span>
+  <span style={{fontWeight:700,fontSize:"13px",color:"#f1f5f9",wordBreak:"break-word"}}>{c.name}</span>
               {topGrp&&<Tag text="Top Group" bg="#15803d"/>}
               {!c.ca&&<Tag text="NC" bg="#475569"/>}
             </div>
@@ -361,11 +411,7 @@ function App(){
             })()}
           </div>
           <div style={{display:"flex",gap:"3px",flexShrink:0}}>
-            <button onClick={()=>setPinned(ip?null:c.name)}
-              style={{background:ip?"#14532d":"#0f172a",border:"1px solid",borderColor:ip?"#22c55e":"#334155",
-                color:ip?"#22c55e":"#475569",borderRadius:"5px",padding:"4px 7px",cursor:"pointer",fontSize:"11px",fontWeight:600}}>
-              {ip?"Unpin":"Pin"}
-            </button>
+
             <button onClick={()=>setCompared(p=>ic?p.filter(x=>x!==c.name):[...p,c.name])}
               style={{background:ic?"#0f2337":"#0f172a",border:"1px solid",borderColor:ic?"#3b82f6":"#334155",
                 color:ic?"#60a5fa":"#475569",borderRadius:"5px",padding:"4px 7px",cursor:"pointer",fontSize:"11px",fontWeight:600}}>
@@ -408,6 +454,11 @@ function App(){
             </div>
           </details>
         )}
+        <button onClick={()=>setExpanded(expanded===c.name?null:c.name)}
+          style={{marginTop:"7px",width:"100%",background:"transparent",border:"1px solid #334155",color:"#64748b",borderRadius:"5px",padding:"4px",fontSize:"10px",cursor:"pointer",textAlign:"center"}}>
+          {expanded===c.name?"Hide cross-trial history":"Show in other trials"}
+        </button>
+        {expanded===c.name&&<CrossTrialHistory name={c.name} currentVar={sortV} currentSite={site}/>}
       </div>
     );
   }
@@ -417,49 +468,6 @@ function App(){
   return (
     <div style={{background:"#0f172a",color:"#e2e8f0",minHeight:"100dvh",display:"flex",flexDirection:"column"}}>
 
-      {/* Settings overlay */}
-      {showSet&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:100,display:"flex",alignItems:"flex-end"}}>
-          <div style={{background:"#1e293b",width:"100%",borderRadius:"14px 14px 0 0",padding:"20px 16px 32px",maxHeight:"85vh",overflowY:"auto"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}}>
-              <span style={{fontWeight:800,fontSize:"16px",color:"#fff"}}>Settings</span>
-              <button onClick={()=>setShowSet(false)} style={{background:"none",border:"none",color:"#64748b",fontSize:"22px",cursor:"pointer",lineHeight:1}}>x</button>
-            </div>
-            {selId&&(
-              <div style={{marginBottom:"18px"}}>
-                <div style={{fontSize:"12px",fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".5px",marginBottom:"6px"}}>Data source — {selId}</div>
-                <div style={{fontSize:"11px",color:"#475569",lineHeight:"1.7"}}>
-                  Data is loaded from the UMN NTEP Explorer database using <code style={{background:"#0f172a",padding:"1px 5px",borderRadius:"3px"}}>{selId}all</code> as the dataset name.
-                  If a trial fails to load, the UMN database may not have data for it yet.
-                  Quality ratings only — commercial availability (NC) status is not available from the UMN database.
-                </div>
-              </div>
-            )}
-            <div style={{marginBottom:"18px"}}>
-              <div style={{fontSize:"12px",fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".5px",marginBottom:"8px"}}>Proxy diagnostic</div>
-              <div style={{fontSize:"11px",color:"#475569",marginBottom:"8px"}}>Loads the 2014 Fineleaf Fescue trial from the UMN NTEP database. If this fails, trial loading will not work.</div>
-              <button onClick={async()=>{setPtLoading(true);setPtRes(null);const r=await proxyTest();setPtRes(r);setPtLoading(false);}}
-                disabled={ptLoading}
-                style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:"6px",padding:"7px 12px",fontSize:"12px",fontWeight:600,cursor:"pointer",marginBottom:"8px"}}>
-                {ptLoading?"Testing...":"Test proxy now"}
-              </button>
-              {ptRes&&(
-                <div style={{background:"#0f172a",borderRadius:"6px",padding:"9px",fontSize:"11px",color:ptRes.ok?"#86efac":"#fca5a5",lineHeight:"1.6",wordBreak:"break-all"}}>
-                  {ptRes.msg}
-                </div>
-              )}
-            </div>
-            <div style={{marginBottom:"18px"}}>
-              <div style={{fontSize:"12px",fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".5px",marginBottom:"8px"}}>Cache</div>
-              <div style={{display:"flex",gap:"7px",flexWrap:"wrap"}}>
-                {selId&&<button onClick={()=>{cdel(selId);setShowSet(false);}} style={{background:"#1c0909",border:"1px solid #7f1d1d",color:"#fca5a5",borderRadius:"6px",padding:"6px 11px",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>Clear {selId}</button>}
-                <button onClick={()=>{TRIALS.forEach(t=>cdel(t.id));setShowSet(false);}} style={{background:"#1c1009",border:"1px solid #92400e",color:"#fcd34d",borderRadius:"6px",padding:"6px 11px",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>Clear all caches</button>
-              </div>
-            </div>
-            <button onClick={()=>setShowSet(false)} style={{width:"100%",background:"#334155",border:"none",color:"#e2e8f0",borderRadius:"8px",padding:"12px",fontWeight:600,fontSize:"14px",cursor:"pointer"}}>Close</button>
-          </div>
-        </div>
-      )}
 
       {/* Header */}
       <header style={{background:"linear-gradient(135deg,#1e3a5f,#0d2137)",borderBottom:"2px solid #22c55e",padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
@@ -467,27 +475,14 @@ function App(){
           <div style={{width:"26px",height:"26px",background:"#22c55e",borderRadius:"6px",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:"#000",fontSize:"14px",flexShrink:0}}>N</div>
           <div>
             <div style={{fontWeight:800,fontSize:"15px",color:"#fff",lineHeight:1}}>NTEP Explorer</div>
-            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>Live data via proxy</div>
+            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>NTEP data</div>
           </div>
         </div>
         <div style={{display:"flex",gap:"6px"}}>
-          <button onClick={()=>setShowSet(true)} style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:"7px",padding:"6px 12px",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>Settings</button>
-          <button onClick={()=>setAiOpen(v=>!v)} style={{background:aiOpen?"#22c55e":"transparent",border:"1px solid #22c55e",color:aiOpen?"#000":"#22c55e",borderRadius:"7px",padding:"6px 12px",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>AI {aiOpen?"v":">"}</button>
+</button>
         </div>
       </header>
 
-      {/* AI panel */}
-      {aiOpen&&(
-        <div style={{background:"#1e293b",borderBottom:"1px solid #334155",padding:"10px 13px",flexShrink:0}}>
-          <div style={{display:"flex",gap:"7px"}}>
-            <input value={aiQ} onChange={e=>setAiQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&askAI()}
-              placeholder="Ask about cultivars, LSD, disease resistance..."
-              style={{flex:1,background:"#0f172a",border:"1px solid #334155",color:"#e2e8f0",borderRadius:"7px",padding:"8px 10px",fontSize:"13px",outline:"none"}}/>
-            <button onClick={askAI} disabled={aiLoad} style={{background:"#22c55e",border:"none",color:"#000",borderRadius:"7px",padding:"8px 12px",fontWeight:700,cursor:"pointer",fontSize:"13px",flexShrink:0}}>{aiLoad?"...":"Ask"}</button>
-          </div>
-          {aiR&&<div style={{marginTop:"8px",background:"#0f172a",borderRadius:"7px",padding:"10px",fontSize:"13px",lineHeight:"1.6",color:"#cbd5e1",maxHeight:"130px",overflowY:"auto"}}>{aiR}</div>}
-        </div>
-      )}
 
       {/* Tabs */}
       <div style={{display:"flex",background:"#1e293b",borderBottom:"1px solid #334155",flexShrink:0}}>
@@ -546,8 +541,7 @@ function App(){
                   {errMsg}
                 </div>
                 <div style={{display:"flex",gap:"8px"}}>
-                  <button onClick={()=>setShowSet(true)} style={{background:"#7f1d1d",border:"none",color:"#fca5a5",borderRadius:"6px",padding:"7px 12px",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>Settings / Proxy Test</button>
-                  <button onClick={()=>{setView("list");setErrMsg("");}} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:"6px",padding:"7px 12px",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>Back</button>
+            <button onClick={()=>{setView("list");setErrMsg("");}} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:"6px",padding:"7px 12px",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>Back</button>
                 </div>
               </div>
             )}
@@ -564,7 +558,7 @@ function App(){
 
                 {/* Header row */}
                 <div style={{display:"flex",gap:"9px",marginBottom:"11px",alignItems:"flex-start"}}>
-                  <button onClick={()=>{setView("list");setData(null);setErrMsg("");setCvSearch("");setPinned(null);setCompared([]);setCacheAge(null);setTSearch("");}}
+                  <button onClick={()=>{setView("list");setData(null);setErrMsg("");setCvSearch("");setCompared([]);setCacheAge(null);setTSearch("");}}
                     style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:"7px",padding:"7px 10px",cursor:"pointer",fontSize:"12px",flexShrink:0}}>Back</button>
                   <div style={{flex:1}}>
                     <div style={{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}}>
@@ -630,16 +624,33 @@ function App(){
                         <thead>
                           <tr>
                             <th style={{textAlign:"left",padding:"4px 6px",color:"#475569",borderBottom:"1px solid #334155"}}>Cultivar</th>
-                            {selVars.map(v=><th key={v} style={{textAlign:"center",padding:"4px 6px",color:"#475569",borderBottom:"1px solid #334155",whiteSpace:"nowrap"}}>{v.split(" ").pop()}</th>)}
+                            {selVars.map(v=>{
+                              const isActive=cmpSort.v===v;
+                              const arr=isActive?(cmpSort.dir==="desc"?"▲":"▼"):"↕";
+                              return <th key={v} style={{textAlign:"center",padding:"4px 6px",color:"#475569",borderBottom:"1px solid #334155",whiteSpace:"nowrap"}}>
+                                {v.split(" ").pop()}
+                                <button onClick={()=>setCmpSort(p=>p.v===v?{v,dir:p.dir==="desc"?"asc":"desc"}:{v,dir:"desc"})}
+                                  style={{background:"none",border:"none",color:isActive?"#22c55e":"#475569",cursor:"pointer",fontSize:"10px",marginLeft:"3px",padding:0}}>
+                                  {arr}
+                                </button>
+                              </th>;
+                            })}
                           </tr>
                         </thead>
                         <tbody>
-                          {compared.map(cn=>{
+                          {[...compared].sort((a,b)=>{
+                      if(!cmpSort.v) return 0;
+                      const ac=data.cultivars.find(x=>x.name===a);
+                      const bc2=data.cultivars.find(x=>x.name===b);
+                      const av=ac?.vars[cmpSort.v]?.[site]??ac?.vars[cmpSort.v]?.MEAN??-1;
+                      const bv=bc2?.vars[cmpSort.v]?.[site]??bc2?.vars[cmpSort.v]?.MEAN??-1;
+                      return cmpSort.dir==="desc"?bv-av:av-bv;
+                    }).map(cn=>{
                             const c=data.cultivars.find(x=>x.name===cn);
                             if(!c) return null;
                             return (
                               <tr key={cn} style={{borderBottom:"1px solid #1e293b"}}>
-                                <td style={{padding:"4px 6px",fontWeight:600,color:cn===pinned?"#22c55e":"#e2e8f0",fontSize:"10px"}}>{cn}</td>
+                                <td style={{padding:"4px 6px",fontWeight:600,color:"#e2e8f0",fontSize:"10px"}}>{cn}</td>
                                 {selVars.map(v=>{
                                   const val=c.vars[v]?.[site]??(site!=="MEAN"?c.vars[v]?.MEAN:null);
                                   const {r,total}=getRanks(data.cultivars,v,site);
@@ -666,8 +677,8 @@ function App(){
                 )}
 
                 {/* Cultivar cards */}
-                {displayed.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#475569"}}>No cultivars match</div>}
-                {displayed.map(c=><CultivarCard key={c.name} c={c}/>)}
+                {filtered.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#475569"}}>No cultivars match</div>}
+                {filtered.map(c=><CultivarCard key={c.name} c={c}/>)}
 
                 {/* Legend */}
                 <div style={{marginTop:"10px",background:"#1e293b",borderRadius:"9px",padding:"9px",fontSize:"10px",color:"#475569"}}>
