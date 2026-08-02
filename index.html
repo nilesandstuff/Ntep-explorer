@@ -228,6 +228,8 @@ function App(){
   const [cvSearch,setCvSearch]= useState("");
   const [showNC,setShowNC]   = useState(false);
   const [compared,setCompared]= useState([]);
+  const [expanded,setExpanded] = useState(null);
+  const [cmpSort,setCmpSort]   = useState({v:null,dir:"desc"});
 
 
   const [globQ,setGlobQ]     = useState("");
@@ -385,10 +387,8 @@ function App(){
     const lsd=data.lsds?.[sortV]||0;
     const topGrp=isTop(c.vars["QUALITY Overall"]?.[site],allMeans,lsd);
     return (
-      <div style={{position:ip?"sticky":"relative",top:ip?0:undefined,zIndex:ip?20:1,
-        background:ip?"#081810":"#1e293b",borderRadius:"9px",padding:"11px 12px",marginBottom:"6px",
-        border:ic?"2px solid #3b82f6":"1px solid #334155",
-        boxShadow:"none"}}>
+      <div style={{background:"#1e293b",borderRadius:"9px",padding:"11px 12px",marginBottom:"6px",
+        border:ic?"2px solid #3b82f6":"1px solid #334155"}}>
         <div style={{display:"flex",justifyContent:"space-between",gap:"7px",marginBottom:"7px"}}>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",alignItems:"center",gap:"5px",flexWrap:"wrap"}}>
@@ -473,7 +473,6 @@ function App(){
           </div>
         </div>
         <div style={{display:"flex",gap:"6px"}}>
-</button>
         </div>
       </header>
 
@@ -680,7 +679,7 @@ function App(){
                   {[["7+","Excellent","#22c55e"],["6-6.9","Good","#84cc16"],["5-5.9","Avg","#eab308"],["<5","Poor","#ef4444"]].map(([r,l,c])=>(
                     <span key={r} style={{marginLeft:"6px"}}><span style={{color:c}}>*</span> {r}={l}</span>
                   ))}
-                  <br/>NC = non-commercial entry. Pin = sticky at top while scrolling. Top Group = within LSD of leader.
+                  <br/>NC = non-commercial entry. Top Group = within LSD of leader.
                 </div>
               </div>
             )}
