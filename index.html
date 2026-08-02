@@ -301,62 +301,39 @@ function App(){
 
 
 
-  /* Cross-trial history — scans localStorage for this cultivar in other cached trials */
-  function CrossTrialHistory({name, currentVar, currentSite}) {
+  /* Cross-trial history — queries Drive index via proxy */
+  function CrossTrialHistory({name, currentVar}) {
     const [rows, setRows] = useState(null);
+    const [err, setErr]   = useState(null);
     useEffect(()=>{
-      const results = [];
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (!key || !key.startsWith(CK)) continue;
-          const tid = key.slice(CK.length);
-          if (tid === selId) continue; // skip current trial
-          const cached = JSON.parse(localStorage.getItem(key));
-          const td = cached?.data;
-          if (!td?.cultivars) continue;
-          const cv = td.cultivars.find(c => c.name === name);
-          if (!cv) continue;
-          const qMean = cv.vars?.['QUALITY Overall']?.MEAN;
-          // compute quality rank
-          let qRank=null, qTotal=0;
-          if (qMean != null) {
-            const scores = td.cultivars.map(c=>c.vars?.['QUALITY Overall']?.MEAN).filter(v=>v!=null).sort((a,b)=>b-a);
-            qTotal = scores.length;
-            qRank  = scores.findIndex(s=>s===qMean) + 1;
-          }
-          // current variable value at current site (fall back to MEAN)
-          const cvVal = cv.vars?.[currentVar]?.[currentSite] ?? cv.vars?.[currentVar]?.MEAN ?? null;
-          // compute current var rank
-          let cvRank=null, cvTotal=0;
-          if (cvVal != null) {
-            const scores = td.cultivars.map(c=>c.vars?.[currentVar]?.[currentSite]??c.vars?.[currentVar]?.MEAN).filter(v=>v!=null).sort((a,b)=>b-a);
-            cvTotal = scores.length;
-            cvRank  = scores.findIndex(s=>s===cvVal) + 1;
-          }
-          results.push({tid, label:td.trialLabel||tid, species:td.species, qMean, qRank, qTotal, cvVal, cvRank, cvTotal});
-        }
-      } catch(_) {}
-      results.sort((a,b)=>(b.qMean||0)-(a.qMean||0));
-      setRows(results);
-    }, [name, currentVar, currentSite]);
+      setRows(null); setErr(null);
+      const varParam = currentVar !== 'QUALITY Overall' ? '&var=' + encodeURIComponent(currentVar) : '';
+      fetch(PROXY + '?action=cultivar_history&name=' + encodeURIComponent(name) + varParam, {cache:'no-store'})
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) { setErr(data.error); return; }
+          setRows(Array.isArray(data) ? data.filter(r => r.trialId !== selId) : []);
+        })
+        .catch(e => setErr(e.message));
+    }, [name, currentVar]);
 
-    if (!rows) return <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>Loading...</div>;
+    const sc2 = v => v>=7?"#22c55e":v>=6?"#84cc16":v>=5?"#eab308":"#ef4444";
+    if (err) return <div style={{color:'#ef4444',fontSize:'11px',padding:'6px 0'}}>Error: {err}</div>;
+    if (!rows) return <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>Loading cross-trial history...</div>;
     if (rows.length === 0) return (
       <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>
-        No other loaded trials contain this cultivar. Load more trials to see cross-trial history.
+        This cultivar has not been found in any other cached trials yet. Load more trials to build the index.
       </div>
     );
-    const sc2 = v => v>=7?"#22c55e":v>=6?"#84cc16":v>=5?"#eab308":"#ef4444";
     return (
       <div style={{marginTop:'8px'}}>
         <div style={{fontSize:'10px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:'5px'}}>
-          In other loaded trials
+          In other trials
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
           {rows.map(r=>(
-            <div key={r.tid} style={{background:'#0f172a',borderRadius:'6px',padding:'7px 10px',fontSize:'11px'}}>
-              <div style={{fontWeight:600,color:'#cbd5e1',marginBottom:'3px'}}>{r.label}</div>
+            <div key={r.trialId} style={{background:'#0f172a',borderRadius:'6px',padding:'7px 10px',fontSize:'11px'}}>
+              <div style={{fontWeight:600,color:'#cbd5e1',marginBottom:'3px'}}>{r.trialLabel}</div>
               <div style={{display:'flex',gap:'12px',flexWrap:'wrap'}}>
                 {r.qMean!=null && (
                   <span>
@@ -365,11 +342,11 @@ function App(){
                     {r.qRank!=null && <span style={{color:'#475569'}}> #{r.qRank}/{r.qTotal}</span>}
                   </span>
                 )}
-                {r.cvVal!=null && currentVar!=='QUALITY Overall' && (
+                {r.varMean!=null && (
                   <span>
                     <span style={{color:'#475569'}}>{currentVar.split(' ').slice(-1)[0]}: </span>
-                    <span style={{fontWeight:700,color:sc2(r.cvVal)}}>{r.cvVal.toFixed(1)}</span>
-                    {r.cvRank!=null && <span style={{color:'#475569'}}> #{r.cvRank}/{r.cvTotal}</span>}
+                    <span style={{fontWeight:700,color:sc2(r.varMean)}}>{r.varMean.toFixed(1)}</span>
+                    {r.varRank!=null && <span style={{color:'#475569'}}> #{r.varRank}/{r.varTotal}</span>}
                   </span>
                 )}
               </div>
@@ -452,7 +429,7 @@ function App(){
           style={{marginTop:"7px",width:"100%",background:"transparent",border:"1px solid #334155",color:"#64748b",borderRadius:"5px",padding:"4px",fontSize:"10px",cursor:"pointer",textAlign:"center"}}>
           {expanded===c.name?"Hide cross-trial history":"Show in other trials"}
         </button>
-        {expanded===c.name&&<CrossTrialHistory name={c.name} currentVar={sortV} currentSite={site}/>}
+        {expanded===c.name&&<CrossTrialHistory name={c.name} currentVar={sortV}/>}
       </div>
     );
   }
