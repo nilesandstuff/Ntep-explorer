@@ -18,7 +18,7 @@ details>summary::-webkit-details-marker{display:none;}
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useMemo,useCallback,useEffect} = React;
+const {useState,useMemo,useCallback,useEffect,useRef} = React;
 
 /* ── constants ─────────────────────────────────────────────────────── */
 const PROXY = "https://script.google.com/macros/s/AKfycbzG478BC2WFHqYJ9C-HSg-jox3GOJxKrfy5xu-AAr3iwooa6vn2RrKSWxxOljDjIsLT/exec";
@@ -44,7 +44,7 @@ function cage(ms){
 /* ── UMN loader ────────────────────────────────────────────────────── */
 async function loadFromProxy(id, trial, onProg, force=false){
   onProg&&onProg({msg:"Fetching NTEP trial data...",pct:10});
-  const r=await fetch(PROXY+"?action=load_trial&trial_id="+id+(force?"&force=1":""),{cache:"no-store"});
+  const r=await fetch(PROXY+"?action=load_trial&trial_id="+id+(force?"&force=1":"")+"&label="+encodeURIComponent(trial.label||id),{cache:"no-store"});
   if(!r.ok) throw new Error("Proxy HTTP "+r.status);
   const j=await r.json();
   if(j.error) throw new Error(j.error);
@@ -275,6 +275,7 @@ function App(){
   const [selSp,setSelSp]     = useState(null);
 
   const [tSearch,setTSearch] = useState("");
+  const scrollRef = useRef(null);
 
 
 
@@ -372,8 +373,10 @@ function App(){
         <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
           {rows.map(r=>(
             <div key={r.trialId} style={{background:'#0f172a',borderRadius:'6px',padding:'7px 10px',fontSize:'11px'}}>
-              <div style={{fontWeight:600,color:'#cbd5e1',marginBottom:'3px'}}>{r.trialLabel}</div>
-              <div style={{display:'flex',gap:'12px',flexWrap:'wrap'}}>
+              <div style={{fontWeight:600,color:'#cbd5e1',marginBottom:'4px',overflowWrap:'break-word',wordBreak:'break-word',maxWidth:'100%',lineHeight:'1.4'}}>
+                {(TRIALS.find(t=>t.id===r.trialId)||{}).label||r.trialLabel||r.trialId}
+              </div>
+              <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
                 {r.qMean!=null && (
                   <span>
                     <span style={{color:'#475569'}}>Quality: </span>
@@ -381,11 +384,14 @@ function App(){
                     {r.qRank!=null && <span style={{color:'#475569'}}> #{r.qRank}/{r.qTotal}</span>}
                   </span>
                 )}
-                {r.varMean!=null && (
+                {currentVar!=='QUALITY Overall' && (
                   <span>
-                    <span style={{color:'#475569'}}>{currentVar.split(' ').slice(-1)[0]}: </span>
-                    <span style={{fontWeight:700,color:sc2(r.varMean)}}>{r.varMean.toFixed(1)}</span>
-                    {r.varRank!=null && <span style={{color:'#475569'}}> #{r.varRank}/{r.varTotal}</span>}
+                    <span style={{color:'#475569'}}>{CMP_ABBR[currentVar]||currentVar.split(' ').slice(-1)[0]}: </span>
+                    {r.varMean!=null
+                      ? <><span style={{fontWeight:700,color:sc2(r.varMean)}}>{r.varMean.toFixed(1)}</span>
+                          {r.varRank!=null && <span style={{color:'#475569'}}> #{r.varRank}/{r.varTotal}</span>}</>
+                      : <span style={{color:'#334155',fontStyle:'italic'}}>N/A</span>
+                    }
                   </span>
                 )}
               </div>
@@ -464,7 +470,7 @@ function App(){
             </div>
           </details>
         )}
-        <button onClick={()=>setExpanded(expanded===c.name?null:c.name)}
+        <button onClick={()=>handleExpand(c.name)}
           style={{marginTop:"7px",width:"100%",background:"transparent",border:"1px solid #334155",color:"#64748b",borderRadius:"5px",padding:"4px",fontSize:"10px",cursor:"pointer",textAlign:"center"}}>
           {expanded===c.name?"Hide cross-trial history":"Show in other trials"}
         </button>
@@ -472,6 +478,13 @@ function App(){
       </div>
     );
   }
+
+  const handleExpand = useCallback((name)=>{
+    const el = scrollRef.current;
+    const top = el ? el.scrollTop : 0;
+    setExpanded(p => p===name ? null : name);
+    if (el) requestAnimationFrame(()=>{ el.scrollTop = top; });
+  }, []);
 
   const PAD={padding:"13px",maxWidth:"880px",margin:"0 auto"};
 
@@ -503,7 +516,7 @@ function App(){
       </div>
 
       {/* Scrollable content */}
-      <div style={{flex:1,overflowY:"auto",overflowX:"hidden"}}>
+      <div ref={scrollRef} style={{flex:1,overflowY:"auto",overflowX:"hidden"}}>
 
         {/* ═══ BY TRIAL ═══ */}
         {tab==="trial"&&(
@@ -636,12 +649,11 @@ function App(){
                             {selVars.map(v=>{
                               const isActive=cmpSort.v===v;
                               const arr=isActive?(cmpSort.dir==="desc"?"▲":"▼"):"↕";
-                              return <th key={v} style={{textAlign:"center",padding:"4px 6px",color:"#475569",borderBottom:"1px solid #334155",whiteSpace:"nowrap"}}>
-                                {cmpLabel(v)}
-                                <button onClick={()=>setCmpSort(p=>p.v===v?{v,dir:p.dir==="desc"?"asc":"desc"}:{v,dir:"desc"})}
-                                  style={{background:"none",border:"none",color:isActive?"#22c55e":"#475569",cursor:"pointer",fontSize:"10px",marginLeft:"3px",padding:0}}>
-                                  {arr}
-                                </button>
+                              const onClick=()=>setCmpSort(p=>p.v===v?{v,dir:p.dir==="desc"?"asc":"desc"}:{v,dir:"desc"});
+                              return <th key={v} onClick={onClick}
+                                style={{textAlign:"center",padding:"4px 6px",color:isActive?"#22c55e":"#475569",borderBottom:"1px solid #334155",whiteSpace:"nowrap",cursor:"pointer",userSelect:"none"}}>
+                                {cmpLabel(v)}{" "}
+                                <span style={{fontSize:"14px",verticalAlign:"middle",color:isActive?"#22c55e":"#64748b"}}>{arr}</span>
                               </th>;
                             })}
                           </tr>
