@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>NTEP Turfgrass Explorer</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0f172a;color:#e2e8f0;font-family:"Segoe UI",system-ui,sans-serif;}
+input,select,button{font-family:inherit;}
+details>summary{list-style:none;}
+details>summary::-webkit-details-marker{display:none;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useMemo,useCallback,useEffect} = React;
+
+/* ── constants ─────────────────────────────────────────────────────── */
+const PROXY = "https://script.google.com/macros/s/AKfycbzG478BC2WFHqYJ9C-HSg-jox3GOJxKrfy5xu-AAr3iwooa6vn2RrKSWxxOljDjIsLT/exec";
+const CK = "ntep_v6_";
+
+/* ── cache ─────────────────────────────────────────────────────────── */
+function cget(id){
+  try{const r=localStorage.getItem(CK+id);if(!r)return null;
+    const o=JSON.parse(r);
+    if(Date.now()-o.ts>30*60*1000){localStorage.removeItem(CK+id);return null;}
+    return o;
+  }catch(_){return null;}
+}
+function cset(id,d){try{localStorage.setItem(CK+id,JSON.stringify({data:d,ts:Date.now()}));}catch(_){}}
+function cdel(id){try{localStorage.removeItem(CK+id);}catch(_){}}
+function chas(id){return cget(id)!==null;}
+function cage(ms){
+  const d=Math.floor(ms/86400000),h=Math.floor(ms/3600000),m=Math.floor(ms/60000);
+  return d>=1?d+"d ago":h>=1?h+"h ago":m>=1?m+"m ago":"just now";
+}
+
+
+/* ── UMN loader ────────────────────────────────────────────────────── */
+async function loadFromProxy(id, trial, onProg, force=false){
+  onProg&&onProg({msg:"Fetching NTEP trial data...",pct:10});
+  const r=await fetch(PROXY+"?action=load_trial&trial_id="+id+(force?"&force=1":""),{cache:"no-store"});
+  if(!r.ok) throw new Error("Proxy HTTP "+r.status);
+  const j=await r.json();
+  if(j.error) throw new Error(j.error);
+  if(!j.cultivars||j.cultivars.length===0) throw new Error("No UMN data for "+id+"all");
+  onProg&&onProg({msg:"Loaded "+j.cultivars.length+" cultivars from NTEP",pct:100});
+  return{...j, trialLabel:trial.label, species:trial.species, dataYears:trial.years};
+}
+
+async function proxyTest(){
+  try{
+    const r=await fetch(PROXY+"?action=load_trial&trial_id=ff14",{cache:"no-store"});
+    if(!r.ok) return{ok:false,msg:"HTTP "+r.status};
+    const j=await r.json();
+    if(j.error) return{ok:false,msg:"Error: "+j.error};
+    return{ok:true,msg:"OK - "+j.cultivars.length+" cultivars loaded (2014 Fineleaf Fescue via NTEP)"};
+  }catch(e){return{ok:false,msg:"FAIL: "+e.message};}
+}
+
+/* ── trial catalogue ───────────────────────────────────────────────── */
+const TRIALS=[
+  {id:"bg19",label:"2019 Bermudagrass (2019-23)",   species:"Bermudagrass",      years:"2019-23"},
+  {id:"bg13",label:"2013 Bermudagrass (2013-17)",   species:"Bermudagrass",      years:"2013-17"},
+  {id:"bg07",label:"2007 Bermudagrass (2007-12)",   species:"Bermudagrass",      years:"2007-12"},
+  {id:"bg02",label:"2002 Bermudagrass (2002-06)",   species:"Bermudagrass",      years:"2002-06"},
+  {id:"bg97",label:"1997 Bermudagrass (1997-01)",   species:"Bermudagrass",      years:"1997-01"},
+  {id:"bt20g",label:"2020 Bentgrass Putting Green", species:"Bentgrass",         years:"2021-24"},
+  {id:"bt14g",label:"2014 Bentgrass Putting Green", species:"Bentgrass",         years:"2015-19"},
+  {id:"bt20f",label:"2020 Bentgrass Fairway/Tee",   species:"Bentgrass",         years:"2021-24"},
+  {id:"bt14f",label:"2014 Bentgrass Fairway/Tee",   species:"Bentgrass",         years:"2015-19"},
+  {id:"bu02",label:"2002 Buffalograss (2002-06)",   species:"Buffalograss",      years:"2002-06"},
+  {id:"bu96",label:"1996 Buffalograss (1996-00)",   species:"Buffalograss",      years:"1996-00"},
+  {id:"bu91",label:"1991 Buffalograss (1992-95)",   species:"Buffalograss",      years:"1992-95"},
+  {id:"ff20",label:"2020 Fineleaf Fescue (2021-24)",species:"Fineleaf Fescue",   years:"2021-24"},
+  {id:"ff14",label:"2014 Fineleaf Fescue (2015-19)",species:"Fineleaf Fescue",   years:"2015-19"},
+  {id:"ff08",label:"2008 Fineleaf Fescue (2008-13)",species:"Fineleaf Fescue",   years:"2008-13"},
+  {id:"ff03",label:"2003 Fineleaf Fescue (2003-07)",species:"Fineleaf Fescue",   years:"2003-07"},
+  {id:"ff98",label:"1998 Fineleaf Fescue (1998-02)",species:"Fineleaf Fescue",   years:"1998-02"},
+  {id:"kb23",label:"2023 Kentucky Bluegrass (2024-25)",species:"Kentucky Bluegrass",years:"2024-25"},
+  {id:"kb17",label:"2017 Kentucky Bluegrass (2018-22)",species:"Kentucky Bluegrass",years:"2018-22"},
+  {id:"kb11",label:"2011 Kentucky Bluegrass (2012-16)",species:"Kentucky Bluegrass",years:"2012-16"},
+  {id:"kb05",label:"2005 Kentucky Bluegrass (2006-10)",species:"Kentucky Bluegrass",years:"2006-10"},
+  {id:"kb00",label:"2000 Kentucky Bluegrass (2001-05)",species:"Kentucky Bluegrass",years:"2001-05"},
+  {id:"kb95h",label:"1995 KBG High Input (1996-00)",   species:"Kentucky Bluegrass",years:"1996-00"},
+  {id:"kb95l",label:"1995 KBG Low Input (1996-00)",    species:"Kentucky Bluegrass",years:"1996-00"},
+  {id:"kb90h",label:"1990 KBG High Input (1991-95)",   species:"Kentucky Bluegrass",years:"1991-95"},
+  {id:"kb90l",label:"1990 KBG Low Input (1991-95)",    species:"Kentucky Bluegrass",years:"1991-95"},
+  {id:"pr22",label:"2022 Perennial Ryegrass (2023-25)",species:"Perennial Ryegrass",years:"2023-25"},
+  {id:"pr16",label:"2016 Perennial Ryegrass (2017-21)",species:"Perennial Ryegrass",years:"2017-21"},
+  {id:"pr10",label:"2010 Perennial Ryegrass (2010-14)",species:"Perennial Ryegrass",years:"2010-14"},
+  {id:"pr04",label:"2004 Perennial Ryegrass (2005-09)",species:"Perennial Ryegrass",years:"2005-09"},
+  {id:"pr99",label:"1999 Perennial Ryegrass (1999-03)",species:"Perennial Ryegrass",years:"1999-03"},
+  {id:"cs22w",label:"2022 Cool-Season Water Use (2023-25)",species:"Cool-Season Water Use",years:"2023-25"},
+  {id:"cs16w",label:"2016 Cool-Season Water Use (2017-20)",species:"Cool-Season Water Use",years:"2017-20"},
+  {id:"cs15l",label:"2015 Cool-Season Low Input (2015-20)",species:"Cool-Season Low Input",years:"2015-20"},
+  {id:"sa23",label:"2023 St. Augustinegrass (2023-25)",species:"St. Augustinegrass",years:"2023-25"},
+  {id:"sa16",label:"2016 St. Augustinegrass (2017-20)",species:"St. Augustinegrass",years:"2017-20"},
+  {id:"sa07",label:"2007 St. Augustinegrass (2007-12)",species:"St. Augustinegrass",years:"2007-12"},
+  {id:"sp23",label:"2023 Seashore Paspalum (2023-25)", species:"Seashore Paspalum", years:"2023-25"},
+  {id:"sp16",label:"2016 Seashore Paspalum (2016-20)", species:"Seashore Paspalum", years:"2016-20"},
+  {id:"tf18",label:"2018 Tall Fescue (2019-23)",    species:"Tall Fescue",       years:"2019-23"},
+  {id:"tf12",label:"2012 Tall Fescue (2012-17)",    species:"Tall Fescue",       years:"2012-17"},
+  {id:"tf06",label:"2006 Tall Fescue (2006-11)",    species:"Tall Fescue",       years:"2006-11"},
+  {id:"tf01",label:"2001 Tall Fescue (2001-05)",    species:"Tall Fescue",       years:"2001-05"},
+  {id:"zg19",label:"2019 Zoysiagrass (2019-23)",    species:"Zoysiagrass",       years:"2019-23"},
+  {id:"zg13",label:"2013 Zoysiagrass (2013-17)",    species:"Zoysiagrass",       years:"2013-17"},
+  {id:"zg07",label:"2007 Zoysiagrass (2007-12)",    species:"Zoysiagrass",       years:"2007-12"},
+  {id:"zg02",label:"2002 Zoysiagrass (2002-06)",    species:"Zoysiagrass",       years:"2002-06"},
+];
+const SPECIES=[...new Set(TRIALS.map(t=>t.species))].sort();
+
+/* ── demo data fallback (kb17 & pr22) ─────────────────────────────── */
+const DEMO={
+  kb17:{trialId:"kb17",trialLabel:"2017 Kentucky Bluegrass (2018-22)",species:"Kentucky Bluegrass",dataYears:"2018-22",
+    vars:["QUALITY Overall","GENETIC COLOR","LEAF TEXTURE","DENSITY Spring","DISEASES Dollar spot"],
+    sites:["MN1","WI1","MI1","OH1","PA1","VA1","MEAN"],lsds:{"QUALITY Overall":0.4},
+    cultivars:[
+      {name:"STARR (GO-2628)",ca:true,vars:{"QUALITY Overall":{MEAN:6.6,MN1:6.8,WI1:6.5,MI1:6.4,OH1:6.3,PA1:6.7,VA1:8.1},"GENETIC COLOR":{MEAN:7.3},"LEAF TEXTURE":{MEAN:6.8},"DENSITY Spring":{MEAN:7.0},"DISEASES Dollar spot":{MEAN:6.5}}},
+      {name:"AFTER MIDNIGHT",ca:true,vars:{"QUALITY Overall":{MEAN:6.4,MN1:6.5,WI1:6.3,MI1:7.2,OH1:6.0,PA1:6.3,VA1:6.1},"GENETIC COLOR":{MEAN:8.1},"LEAF TEXTURE":{MEAN:6.5},"DENSITY Spring":{MEAN:7.0},"DISEASES Dollar spot":{MEAN:5.8}}},
+      {name:"MIDNIGHT",ca:true,vars:{"QUALITY Overall":{MEAN:6.2,MN1:6.3,WI1:6.2,MI1:6.9,OH1:6.0,PA1:6.2,VA1:6.6},"GENETIC COLOR":{MEAN:8.3},"LEAF TEXTURE":{MEAN:6.3},"DENSITY Spring":{MEAN:6.8},"DISEASES Dollar spot":{MEAN:5.9}}},
+      {name:"SKYE",ca:true,vars:{"QUALITY Overall":{MEAN:6.3,MN1:6.1,WI1:6.0,MI1:6.4,OH1:6.1,PA1:6.3,VA1:7.7},"GENETIC COLOR":{MEAN:6.9},"LEAF TEXTURE":{MEAN:6.3},"DENSITY Spring":{MEAN:6.6},"DISEASES Dollar spot":{MEAN:6.3}}},
+      {name:"BLUE DEVIL",ca:true,vars:{"QUALITY Overall":{MEAN:6.1,MN1:6.0,WI1:5.9,MI1:6.4,OH1:5.9,PA1:6.1,VA1:6.6},"GENETIC COLOR":{MEAN:7.1},"LEAF TEXTURE":{MEAN:5.9},"DENSITY Spring":{MEAN:6.4},"DISEASES Dollar spot":{MEAN:6.0}}},
+      {name:"PROSPERITY",ca:true,vars:{"QUALITY Overall":{MEAN:5.6,MN1:5.5,WI1:5.4,MI1:6.4,OH1:5.5,PA1:5.6,VA1:5.9},"GENETIC COLOR":{MEAN:6.5},"LEAF TEXTURE":{MEAN:5.5},"DENSITY Spring":{MEAN:5.9},"DISEASES Dollar spot":{MEAN:5.5}}},
+      {name:"KENBLUE",ca:true,vars:{"QUALITY Overall":{MEAN:5.0,MN1:4.9,WI1:4.8,MI1:5.4,OH1:4.7,PA1:4.9,VA1:6.3},"GENETIC COLOR":{MEAN:5.8},"LEAF TEXTURE":{MEAN:4.9},"DENSITY Spring":{MEAN:5.2},"DISEASES Dollar spot":{MEAN:4.9}}},
+    ],_demo:true},
+  pr22:{trialId:"pr22",trialLabel:"2022 Perennial Ryegrass (2023-25)",species:"Perennial Ryegrass",dataYears:"2023-25",
+    vars:["QUALITY Overall","GENETIC COLOR","LEAF TEXTURE","DISEASES Crown rust"],
+    sites:["MA1","NJ1","OH1","OR1","VA1","WI1","MEAN"],lsds:{"QUALITY Overall":0.3},
+    cultivars:[
+      {name:"ACCENT II",ca:true,vars:{"QUALITY Overall":{MEAN:7.1,MA1:7.0,NJ1:7.2,OH1:7.0,OR1:7.3,VA1:7.1,WI1:6.9},"GENETIC COLOR":{MEAN:7.8},"LEAF TEXTURE":{MEAN:7.0},"DISEASES Crown rust":{MEAN:7.5}}},
+      {name:"BRIGHTSTAR SLT",ca:true,vars:{"QUALITY Overall":{MEAN:7.0,MA1:6.9,NJ1:7.1,OH1:6.9,OR1:7.2,VA1:7.0,WI1:6.8},"GENETIC COLOR":{MEAN:7.6},"LEAF TEXTURE":{MEAN:6.8},"DISEASES Crown rust":{MEAN:7.4}}},
+      {name:"FIESTA V",ca:true,vars:{"QUALITY Overall":{MEAN:6.9,MA1:6.8,NJ1:7.0,OH1:6.8,OR1:7.1,VA1:6.9,WI1:6.7},"GENETIC COLOR":{MEAN:7.5},"LEAF TEXTURE":{MEAN:6.7},"DISEASES Crown rust":{MEAN:7.3}}},
+      {name:"LINN",ca:true,vars:{"QUALITY Overall":{MEAN:6.7,MA1:6.6,NJ1:6.8,OH1:6.7,OR1:6.9,VA1:6.7,WI1:6.5},"GENETIC COLOR":{MEAN:7.2},"LEAF TEXTURE":{MEAN:6.5},"DISEASES Crown rust":{MEAN:7.1}}},
+      {name:"SILVERDOLLAR",ca:true,vars:{"QUALITY Overall":{MEAN:6.5,MA1:6.4,NJ1:6.6,OH1:6.5,OR1:6.7,VA1:6.5,WI1:6.3},"GENETIC COLOR":{MEAN:7.0},"LEAF TEXTURE":{MEAN:6.3},"DISEASES Crown rust":{MEAN:6.9}}},
+    ],_demo:true},
+};
+
+/* ── global cultivar index (for By Cultivar tab) ───────────────────── */
+const CIDX={
+  "MIDNIGHT":            [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.2,ca:true},{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "AFTER MIDNIGHT":      [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.4,ca:true},{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "STARR (GO-2628)":     [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.6,ca:true}],
+  "SKYE":                [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.3,ca:true},{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "BLUE DEVIL":          [{id:"kb17",sp:"Kentucky Bluegrass",mean:6.1,ca:true}],
+  "PROSPERITY":          [{id:"kb17",sp:"Kentucky Bluegrass",mean:5.6,ca:true}],
+  "KENBLUE":             [{id:"kb17",sp:"Kentucky Bluegrass",mean:5.0,ca:true},{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "BARON":               [{id:"kb11",sp:"Kentucky Bluegrass",mean:null,ca:true},{id:"kb05",sp:"Kentucky Bluegrass",mean:null,ca:true}],
+  "ACCENT II":           [{id:"pr22",sp:"Perennial Ryegrass",mean:7.1,ca:true},{id:"pr16",sp:"Perennial Ryegrass",mean:null,ca:true}],
+  "BRIGHTSTAR SLT":      [{id:"pr22",sp:"Perennial Ryegrass",mean:7.0,ca:true}],
+  "FIESTA V":            [{id:"pr22",sp:"Perennial Ryegrass",mean:6.9,ca:true},{id:"pr16",sp:"Perennial Ryegrass",mean:null,ca:true}],
+  "LINN":                [{id:"pr22",sp:"Perennial Ryegrass",mean:6.7,ca:true}],
+  "SILVERDOLLAR":        [{id:"pr22",sp:"Perennial Ryegrass",mean:6.5,ca:true}],
+  "FALCON V":            [{id:"tf18",sp:"Tall Fescue",mean:null,ca:true},{id:"tf12",sp:"Tall Fescue",mean:null,ca:true}],
+  "ECLIPSE":             [{id:"tf18",sp:"Tall Fescue",mean:null,ca:true},{id:"tf12",sp:"Tall Fescue",mean:null,ca:true}],
+  "CELEBRATION":         [{id:"bg19",sp:"Bermudagrass",mean:null,ca:true},{id:"bg13",sp:"Bermudagrass",mean:null,ca:true}],
+  "PATRIOT":             [{id:"bg13",sp:"Bermudagrass",mean:null,ca:true},{id:"bg07",sp:"Bermudagrass",mean:null,ca:true}],
+  "TIFWAY":              [{id:"bg07",sp:"Bermudagrass",mean:null,ca:true},{id:"bg02",sp:"Bermudagrass",mean:null,ca:true}],
+  "MEYER":               [{id:"zg19",sp:"Zoysiagrass",mean:null,ca:true},{id:"zg13",sp:"Zoysiagrass",mean:null,ca:true}],
+  "EMERALD":             [{id:"zg19",sp:"Zoysiagrass",mean:null,ca:true},{id:"zg13",sp:"Zoysiagrass",mean:null,ca:true}],
+  "PALISADES":           [{id:"zg19",sp:"Zoysiagrass",mean:null,ca:true},{id:"zg13",sp:"Zoysiagrass",mean:null,ca:true}],
+  "FLORATAM":            [{id:"sa23",sp:"St. Augustinegrass",mean:null,ca:true},{id:"sa16",sp:"St. Augustinegrass",mean:null,ca:true}],
+  "PALMETTO":            [{id:"sa23",sp:"St. Augustinegrass",mean:null,ca:true},{id:"sa16",sp:"St. Augustinegrass",mean:null,ca:true}],
+};
+
+/* ── UI helpers ────────────────────────────────────────────────────── */
+function sc(v){return v>=7?"#22c55e":v>=6?"#84cc16":v>=5?"#eab308":v>=4?"#f97316":"#ef4444";}
+
+function ScoreBar({value,compact}){
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:"6px",width:"100%"}}>
+      <div style={{flex:1,background:"#0f172a",borderRadius:"4px",height:compact?"5px":"8px",overflow:"hidden"}}>
+        <div style={{width:Math.min(100,value/9*100)+"%",height:"100%",background:sc(value),borderRadius:"4px"}}/>
+      </div>
+      {!compact && <span style={{fontSize:"13px",fontWeight:700,color:sc(value),minWidth:"28px",textAlign:"right"}}>{value.toFixed(1)}</span>}
+    </div>
+  );
+}
+
+function Rank({rank,total}){
+  const p=rank/total;
+  const bg=p<=0.25?"#16a34a":p<=0.5?"#65a30d":p<=0.75?"#d97706":"#dc2626";
+  return <span style={{background:bg,color:"#fff",borderRadius:"999px",fontSize:"10px",fontWeight:700,padding:"2px 6px",whiteSpace:"nowrap"}}>#{rank}/{total}</span>;
+}
+
+function Tag({text,bg="#334155"}){
+  return <span style={{background:bg,color:"#fff",borderRadius:"4px",fontSize:"10px",fontWeight:600,padding:"2px 5px",whiteSpace:"nowrap"}}>{text}</span>;
+}
+
+function Pill({active,onClick,label}){
+  return (
+    <button onClick={onClick} style={{padding:"3px 8px",borderRadius:"5px",fontSize:"11px",fontWeight:600,cursor:"pointer",border:active?"2px solid #22c55e":"1px solid #334155",background:active?"rgba(34,197,94,.1)":"#0f172a",color:active?"#22c55e":"#64748b"}}>
+      {label}
+    </button>
+  );
+}
+
+function getRanks(cultivars,vk,site){
+  let sc2=cultivars.map(c=>({name:c.name,v:c.vars[vk]?.[site]??null})).filter(x=>x.v!==null);
+  const fb=sc2.length===0&&site!=="MEAN";
+  if(fb) sc2=cultivars.map(c=>({name:c.name,v:c.vars[vk]?.MEAN??null})).filter(x=>x.v!==null);
+  sc2.sort((a,b)=>b.v-a.v);
+  const r={}; sc2.forEach((c,i)=>r[c.name]=i+1);
+  return{r,total:sc2.length,fb};
+}
+
+function isTop(val,all,lsd){
+  return lsd&&all.length>0?(Math.max(...all)-val)<=lsd:false;
+}
+
+/* ── App ─────────────────────────────────────────────────────────────── */
+function App(){
+  const [tab,setTab]         = useState("trial");
+  const [view,setView]       = useState("list");   /* list|loading|trial|error */
+  const [selId,setSelId]     = useState(null);
+  const [prog,setProg]       = useState({msg:"",pct:0});
+  const [errMsg,setErrMsg]   = useState("");
+  const [data,setData]       = useState(null);
+  const [cacheAge,setCacheAge]=useState(null);
+  const [selVars,setSelVars] = useState(["QUALITY Overall"]);
+  const [sortV,setSortV]     = useState("QUALITY Overall");
+  const [site,setSite]       = useState("MEAN");
+  const [cvSearch,setCvSearch]= useState("");
+  const [showNC,setShowNC]   = useState(false);
+  const [compared,setCompared]= useState([]);
+  const [overrides,setOverrides]=useState({});
+
+
+  const [globQ,setGlobQ]     = useState("");
+  const [selSp,setSelSp]     = useState(null);
+
+  const [tSearch,setTSearch] = useState("");
+
+  useEffect(()=>{
+    try{const s=localStorage.getItem("ntep_sf_v3");if(s)setOverrides(JSON.parse(s));}catch(_){}
+  },[]);
+
+
+
+  const go=useCallback(async(id,force=false)=>{
+    const trial=TRIALS.find(t=>t.id===id);
+    if(!trial) return;
+    setSelId(id); setCompared([]); setSite("MEAN");
+    setCvSearch(""); setErrMsg(""); setPtRes(null);
+    setSfDraft(overrides[id]||"");
+
+    if(!force){
+      const hit=cget(id);
+      if(hit){
+        setData(hit.data); setCacheAge(Date.now()-hit.ts);
+        setSelVars([hit.data.vars[0]||"QUALITY Overall"]);
+        setSortV(hit.data.vars[0]||"QUALITY Overall");
+        setView("trial"); setTab("trial"); return;
+      }
+    }
+
+    setView("loading"); setTab("trial"); setProg({msg:"Starting...",pct:0});
+
+    try{
+      const d=await loadFromProxy(id,trial,p=>setProg(p),force);
+      cset(id,d); setData(d); setCacheAge(null);
+      setSelVars([d.vars[0]||"QUALITY Overall"]);
+      setSortV(d.vars[0]||"QUALITY Overall");
+      setView("trial");
+    }catch(e){
+      if(DEMO[id]){
+        setData(DEMO[id]); setCacheAge(null);
+        setSelVars(["QUALITY Overall"]); setSortV("QUALITY Overall");
+        setView("trial");
+        setErrMsg("Live load failed — showing demo data.\n"+e.message);
+      } else {
+        setErrMsg(e.message); setView("error");
+      }
+    }
+  },[overrides]);
+
+  /* filtered + sorted cultivars */
+  const filtered=useMemo(()=>{
+    if(!data) return [];
+    let list=data.cultivars;
+    if(!showNC) list=list.filter(c=>c.ca);
+    if(cvSearch.trim()){const q=cvSearch.toLowerCase();list=list.filter(c=>c.name.toLowerCase().includes(q));}
+    return [...list].sort((a,b)=>(b.vars[sortV]?.[site]??-1)-(a.vars[sortV]?.[site]??-1));
+  },[data,showNC,cvSearch,sortV,site]);
+
+  /* global cultivar search results */
+  const globResults=useMemo(()=>{
+    const q=globQ.trim().toLowerCase();
+    if(q.length<2) return [];
+    return Object.entries(CIDX).filter(([n])=>n.toLowerCase().includes(q));
+  },[globQ]);
+
+  /* trial list */
+  const trialList=useMemo(()=>{
+    if(!tSearch.trim()) return TRIALS;
+    const q=tSearch.toLowerCase();
+    return TRIALS.filter(t=>t.label.toLowerCase().includes(q)||t.species.toLowerCase().includes(q));
+  },[tSearch]);
+
+
+
+
+  /* Cross-trial history — scans localStorage for this cultivar in other cached trials */
+  function CrossTrialHistory({name, currentVar, currentSite}) {
+    const [rows, setRows] = useState(null);
+    useEffect(()=>{
+      const results = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key || !key.startsWith(CK)) continue;
+          const tid = key.slice(CK.length);
+          if (tid === selId) continue; // skip current trial
+          const cached = JSON.parse(localStorage.getItem(key));
+          const td = cached?.data;
+          if (!td?.cultivars) continue;
+          const cv = td.cultivars.find(c => c.name === name);
+          if (!cv) continue;
+          const qMean = cv.vars?.['QUALITY Overall']?.MEAN;
+          // compute quality rank
+          let qRank=null, qTotal=0;
+          if (qMean != null) {
+            const scores = td.cultivars.map(c=>c.vars?.['QUALITY Overall']?.MEAN).filter(v=>v!=null).sort((a,b)=>b-a);
+            qTotal = scores.length;
+            qRank  = scores.findIndex(s=>s===qMean) + 1;
+          }
+          // current variable value at current site (fall back to MEAN)
+          const cvVal = cv.vars?.[currentVar]?.[currentSite] ?? cv.vars?.[currentVar]?.MEAN ?? null;
+          // compute current var rank
+          let cvRank=null, cvTotal=0;
+          if (cvVal != null) {
+            const scores = td.cultivars.map(c=>c.vars?.[currentVar]?.[currentSite]??c.vars?.[currentVar]?.MEAN).filter(v=>v!=null).sort((a,b)=>b-a);
+            cvTotal = scores.length;
+            cvRank  = scores.findIndex(s=>s===cvVal) + 1;
+          }
+          results.push({tid, label:td.trialLabel||tid, species:td.species, qMean, qRank, qTotal, cvVal, cvRank, cvTotal});
+        }
+      } catch(_) {}
+      results.sort((a,b)=>(b.qMean||0)-(a.qMean||0));
+      setRows(results);
+    }, [name, currentVar, currentSite]);
+
+    if (!rows) return <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>Loading...</div>;
+    if (rows.length === 0) return (
+      <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>
+        No other loaded trials contain this cultivar. Load more trials to see cross-trial history.
+      </div>
+    );
+    const sc2 = v => v>=7?"#22c55e":v>=6?"#84cc16":v>=5?"#eab308":"#ef4444";
+    return (
+      <div style={{marginTop:'8px'}}>
+        <div style={{fontSize:'10px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:'5px'}}>
+          In other loaded trials
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
+          {rows.map(r=>(
+            <div key={r.tid} style={{background:'#0f172a',borderRadius:'6px',padding:'7px 10px',fontSize:'11px'}}>
+              <div style={{fontWeight:600,color:'#cbd5e1',marginBottom:'3px'}}>{r.label}</div>
+              <div style={{display:'flex',gap:'12px',flexWrap:'wrap'}}>
+                {r.qMean!=null && (
+                  <span>
+                    <span style={{color:'#475569'}}>Quality: </span>
+                    <span style={{fontWeight:700,color:sc2(r.qMean)}}>{r.qMean.toFixed(1)}</span>
+                    {r.qRank!=null && <span style={{color:'#475569'}}> #{r.qRank}/{r.qTotal}</span>}
+                  </span>
+                )}
+                {r.cvVal!=null && currentVar!=='QUALITY Overall' && (
+                  <span>
+                    <span style={{color:'#475569'}}>{currentVar.split(' ').slice(-1)[0]}: </span>
+                    <span style={{fontWeight:700,color:sc2(r.cvVal)}}>{r.cvVal.toFixed(1)}</span>
+                    {r.cvRank!=null && <span style={{color:'#475569'}}> #{r.cvRank}/{r.cvTotal}</span>}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* CultivarCard — defined as a regular function inside App so it has closure */
+  function CultivarCard({c}){
+        const ic=compared.includes(c.name);
+    const allMeans=data.cultivars.map(x=>x.vars[sortV]?.[site]).filter(Boolean);
+    const lsd=data.lsds?.[sortV]||0;
+    const topGrp=isTop(c.vars["QUALITY Overall"]?.[site],allMeans,lsd);
+    return (
+      <div style={{position:ip?"sticky":"relative",top:ip?0:undefined,zIndex:ip?20:1,
+        background:ip?"#081810":"#1e293b",borderRadius:"9px",padding:"11px 12px",marginBottom:"6px",
+        border:ic?"2px solid #3b82f6":"1px solid #334155",
+        boxShadow:"none"}}>
+        <div style={{display:"flex",justifyContent:"space-between",gap:"7px",marginBottom:"7px"}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:"5px",flexWrap:"wrap"}}>
+  <span style={{fontWeight:700,fontSize:"13px",color:"#f1f5f9",wordBreak:"break-word"}}>{c.name}</span>
+              {topGrp&&<Tag text="Top Group" bg="#15803d"/>}
+              {!c.ca&&<Tag text="NC" bg="#475569"/>}
+            </div>
+            {(()=>{
+              const {r,total,fb}=getRanks(data.cultivars,sortV,site);
+              if(!total) return null;
+              return <div style={{fontSize:"10px",color:"#475569",marginTop:"2px"}}>
+                Rank ({sortV.split(" ").pop()}){fb?" (mean)":""}: <Rank rank={r[c.name]||1} total={total}/>
+              </div>;
+            })()}
+          </div>
+          <div style={{display:"flex",gap:"3px",flexShrink:0}}>
+
+            <button onClick={()=>setCompared(p=>ic?p.filter(x=>x!==c.name):[...p,c.name])}
+              style={{background:ic?"#0f2337":"#0f172a",border:"1px solid",borderColor:ic?"#3b82f6":"#334155",
+                color:ic?"#60a5fa":"#475569",borderRadius:"5px",padding:"4px 7px",cursor:"pointer",fontSize:"11px",fontWeight:600}}>
+              Cmp
+            </button>
+          </div>
+        </div>
+        {selVars.map(vk=>{
+          const val=c.vars[vk]?.[site]??(site!=="MEAN"?c.vars[vk]?.MEAN:null);
+          if(val==null) return null;
+          const {r,total,fb}=getRanks(data.cultivars,vk,site);
+          return (
+            <div key={vk} style={{marginBottom:"5px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"2px"}}>
+                <span style={{fontSize:"10px",color:"#94a3b8"}}>{vk.replace("DISEASES ","D: ")}{fb&&<span style={{color:"#475569"}}> (mean)</span>}</span>
+                <div style={{display:"flex",alignItems:"center",gap:"4px"}}>
+                  {total>0&&r[c.name]&&<Rank rank={r[c.name]} total={total}/>}
+                  <span style={{fontSize:"13px",fontWeight:700,color:sc(val)}}>{val.toFixed(1)}</span>
+                </div>
+              </div>
+              <ScoreBar value={val}/>
+            </div>
+          );
+        })}
+        {data.sites.length>2&&selVars.length>0&&(
+          <details style={{marginTop:"6px"}}>
+            <summary style={{fontSize:"10px",color:"#475569",cursor:"pointer",userSelect:"none"}}>All site scores</summary>
+            <div style={{marginTop:"5px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(58px,1fr))",gap:"3px"}}>
+              {data.sites.filter(s=>s!=="MEAN").map(s=>{
+                const v=c.vars[selVars[0]]?.[s];
+                if(v==null) return null;
+                return (
+                  <div key={s} style={{background:"#0f172a",borderRadius:"5px",padding:"3px 5px",textAlign:"center"}}>
+                    <div style={{fontSize:"9px",color:"#475569"}}>{s}</div>
+                    <div style={{fontSize:"12px",fontWeight:700,color:sc(v)}}>{v.toFixed(1)}</div>
+                    <ScoreBar value={v} compact/>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        )}
+        <button onClick={()=>setExpanded(expanded===c.name?null:c.name)}
+          style={{marginTop:"7px",width:"100%",background:"transparent",border:"1px solid #334155",color:"#64748b",borderRadius:"5px",padding:"4px",fontSize:"10px",cursor:"pointer",textAlign:"center"}}>
+          {expanded===c.name?"Hide cross-trial history":"Show in other trials"}
+        </button>
+        {expanded===c.name&&<CrossTrialHistory name={c.name} currentVar={sortV} currentSite={site}/>}
+      </div>
+    );
+  }
+
+  const PAD={padding:"13px",maxWidth:"880px",margin:"0 auto"};
+
+  return (
+    <div style={{background:"#0f172a",color:"#e2e8f0",minHeight:"100dvh",display:"flex",flexDirection:"column"}}>
+
+
+      {/* Header */}
+      <header style={{background:"linear-gradient(135deg,#1e3a5f,#0d2137)",borderBottom:"2px solid #22c55e",padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:"9px"}}>
+          <div style={{width:"26px",height:"26px",background:"#22c55e",borderRadius:"6px",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:"#000",fontSize:"14px",flexShrink:0}}>N</div>
+          <div>
+            <div style={{fontWeight:800,fontSize:"15px",color:"#fff",lineHeight:1}}>NTEP Explorer</div>
+            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>NTEP data</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:"6px"}}>
+</button>
+        </div>
+      </header>
+
+
+      {/* Tabs */}
+      <div style={{display:"flex",background:"#1e293b",borderBottom:"1px solid #334155",flexShrink:0}}>
+        {[["trial","By Trial"],["cultivar","By Cultivar"],["species","By Species"]].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:"10px 5px",background:tab===id?"#0f172a":"transparent",color:tab===id?"#22c55e":"#64748b",border:"none",borderBottom:tab===id?"2px solid #22c55e":"2px solid transparent",cursor:"pointer",fontSize:"11px",fontWeight:tab===id?700:500}}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{flex:1,overflowY:"auto",overflowX:"hidden"}}>
+
+        {/* ═══ BY TRIAL ═══ */}
+        {tab==="trial"&&(
+          <div style={PAD}>
+
+            {/* List */}
+            {view==="list"&&(
+              <div>
+                <input value={tSearch} onChange={e=>setTSearch(e.target.value)} placeholder="Search trials..."
+                  style={{width:"100%",background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",borderRadius:"8px",padding:"11px 13px",fontSize:"14px",outline:"none",boxSizing:"border-box",marginBottom:"12px"}}/>
+                {SPECIES.map(sp=>{
+                  const ts=trialList.filter(t=>t.species===sp);
+                  if(!ts.length) return null;
+                  return (
+                    <div key={sp} style={{marginBottom:"12px"}}>
+                      <div style={{fontSize:"10px",fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:".7px",marginBottom:"4px"}}>{sp}</div>
+                      {ts.map(t=>(
+                        <button key={t.id} onClick={()=>go(t.id)}
+                          style={{width:"100%",background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",borderRadius:"8px",padding:"10px 12px",textAlign:"left",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px",fontSize:"13px"}}>
+                          <span style={{flex:1}}>{t.label}</span>
+                          {chas(t.id)&&<Tag text="cached" bg="#1e3a5f"/>}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Loading */}
+            {view==="loading"&&(
+              <div style={{padding:"40px 16px",textAlign:"center"}}>
+                <div style={{fontSize:"14px",color:"#94a3b8",marginBottom:"14px"}}>{prog.msg||"Loading..."}</div>
+                <div style={{background:"#1e293b",borderRadius:"999px",height:"8px",overflow:"hidden",maxWidth:"320px",margin:"0 auto"}}>
+                  <div style={{width:(prog.pct||40)+"%",height:"100%",background:"#22c55e",borderRadius:"999px",transition:"width .3s"}}/>
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {view==="error"&&(
+              <div>
+                <div style={{background:"#1c0909",border:"1px solid #7f1d1d",borderRadius:"9px",padding:"14px",fontSize:"12px",color:"#fca5a5",lineHeight:"1.7",whiteSpace:"pre-wrap",marginBottom:"10px"}}>
+                  {errMsg}
+                </div>
+                <div style={{display:"flex",gap:"8px"}}>
+            <button onClick={()=>{setView("list");setErrMsg("");}} style={{background:"#334155",border:"none",color:"#94a3b8",borderRadius:"6px",padding:"7px 12px",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>Back</button>
+                </div>
+              </div>
+            )}
+
+            {/* Trial loaded */}
+            {view==="trial"&&data&&(
+              <div>
+                {/* Demo / live error notice */}
+                {errMsg&&(
+                  <div style={{background:"#1c0f00",border:"1px solid #92400e",borderRadius:"7px",padding:"9px",fontSize:"11px",color:"#fcd34d",marginBottom:"10px",lineHeight:"1.6"}}>
+                    {errMsg}
+                  </div>
+                )}
+
+                {/* Header row */}
+                <div style={{display:"flex",gap:"9px",marginBottom:"11px",alignItems:"flex-start"}}>
+                  <button onClick={()=>{setView("list");setData(null);setErrMsg("");setCvSearch("");setCompared([]);setCacheAge(null);setTSearch("");}}
+                    style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:"7px",padding:"7px 10px",cursor:"pointer",fontSize:"12px",flexShrink:0}}>Back</button>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",gap:"6px",flexWrap:"wrap"}}>
+                      <span style={{fontWeight:800,fontSize:"14px",color:"#fff"}}>{data.trialLabel||data.trialId}</span>
+                      {cacheAge!=null&&<Tag text={"Cached "+cage(cacheAge)} bg="#1e3a5f"/>}
+                      {data._demo&&<Tag text="Demo data" bg="#78350f"/>}
+                      {data.hits&&!data._demo&&<Tag text={"Live — "+data.hits+" tables"} bg="#166534"/>}
+                    </div>
+                    <div style={{fontSize:"11px",color:"#475569",marginTop:"2px"}}>{data.cultivars.length} cultivars{data.dataYears?" — "+data.dataYears:""}{data.sf?" — subfolder: "+data.sf:""}</div>
+                    <button onClick={()=>{cdel(selId);go(selId,true);}}
+                      style={{marginTop:"5px",background:"transparent",border:"1px solid #334155",color:"#64748b",borderRadius:"5px",padding:"3px 9px",fontSize:"10px",cursor:"pointer"}}>Refresh from NTEP</button>
+                  </div>
+                </div>
+
+                {/* Controls */}
+                <div style={{background:"#1e293b",borderRadius:"9px",padding:"11px",marginBottom:"10px"}}>
+                  <input value={cvSearch} onChange={e=>setCvSearch(e.target.value)} placeholder="Filter cultivars..."
+                    style={{width:"100%",background:"#0f172a",border:"1px solid #334155",color:"#e2e8f0",borderRadius:"7px",padding:"8px 10px",fontSize:"13px",outline:"none",boxSizing:"border-box",marginBottom:"9px"}}/>
+                  <div style={{marginBottom:"8px"}}>
+                    <div style={{fontSize:"10px",color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:".5px",marginBottom:"4px"}}>Site</div>
+                    <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
+                      {data.sites.map(s=><Pill key={s} active={site===s} onClick={()=>setSite(s)} label={s}/>)}
+                    </div>
+                  </div>
+                  <div style={{marginBottom:"8px"}}>
+                    <div style={{fontSize:"10px",color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:".5px",marginBottom:"4px"}}>Variables (tap to toggle)</div>
+                    <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
+                      {data.vars.map(v=><Pill key={v} active={selVars.includes(v)}
+                        onClick={()=>setSelVars(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v])}
+                        label={v.replace("DISEASES ","D: ")}/>)}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:"10px",flexWrap:"wrap",alignItems:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
+                      <span style={{fontSize:"11px",color:"#475569"}}>Sort:</span>
+                      <select value={sortV} onChange={e=>setSortV(e.target.value)}
+                        style={{background:"#0f172a",border:"1px solid #334155",color:"#e2e8f0",borderRadius:"5px",padding:"3px 6px",fontSize:"11px"}}>
+                        {data.vars.map(v=><option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </div>
+                    <label style={{display:"flex",alignItems:"center",gap:"5px",fontSize:"11px",cursor:"pointer"}}>
+                      <input type="checkbox" checked={showNC} onChange={e=>setShowNC(e.target.checked)}/>
+                      <span style={{color:"#94a3b8"}}>Show non-commercial</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Compare strip */}
+                {compared.length>0&&(
+                  <div style={{background:"#0f2337",borderRadius:"9px",padding:"10px 12px",marginBottom:"9px",border:"1px solid #1e40af"}}>
+                    <div style={{fontSize:"10px",fontWeight:700,color:"#60a5fa",marginBottom:"6px"}}>COMPARING {compared.length}</div>
+                    <div style={{display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"8px"}}>
+                      {compared.map(cn=>(
+                        <span key={cn} style={{background:"#1e40af",color:"#fff",borderRadius:"5px",padding:"3px 8px",fontSize:"11px",display:"flex",alignItems:"center",gap:"4px"}}>
+                          {cn}
+                          <button onClick={()=>setCompared(p=>p.filter(x=>x!==cn))} style={{background:"none",border:"none",color:"#93c5fd",cursor:"pointer",fontSize:"14px",padding:0,lineHeight:1}}>x</button>
+                        </span>
+                      ))}
+                      <button onClick={()=>setCompared([])} style={{background:"transparent",border:"1px solid #1e40af",color:"#60a5fa",borderRadius:"5px",padding:"3px 8px",fontSize:"11px",cursor:"pointer"}}>Clear</button>
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:"11px",minWidth:"280px"}}>
+                        <thead>
+                          <tr>
+                            <th style={{textAlign:"left",padding:"4px 6px",color:"#475569",borderBottom:"1px solid #334155"}}>Cultivar</th>
+                            {selVars.map(v=>{
+                              const isActive=cmpSort.v===v;
+                              const arr=isActive?(cmpSort.dir==="desc"?"▲":"▼"):"↕";
+                              return <th key={v} style={{textAlign:"center",padding:"4px 6px",color:"#475569",borderBottom:"1px solid #334155",whiteSpace:"nowrap"}}>
+                                {v.split(" ").pop()}
+                                <button onClick={()=>setCmpSort(p=>p.v===v?{v,dir:p.dir==="desc"?"asc":"desc"}:{v,dir:"desc"})}
+                                  style={{background:"none",border:"none",color:isActive?"#22c55e":"#475569",cursor:"pointer",fontSize:"10px",marginLeft:"3px",padding:0}}>
+                                  {arr}
+                                </button>
+                              </th>;
+                            })}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...compared].sort((a,b)=>{
+                      if(!cmpSort.v) return 0;
+                      const ac=data.cultivars.find(x=>x.name===a);
+                      const bc2=data.cultivars.find(x=>x.name===b);
+                      const av=ac?.vars[cmpSort.v]?.[site]??ac?.vars[cmpSort.v]?.MEAN??-1;
+                      const bv=bc2?.vars[cmpSort.v]?.[site]??bc2?.vars[cmpSort.v]?.MEAN??-1;
+                      return cmpSort.dir==="desc"?bv-av:av-bv;
+                    }).map(cn=>{
+                            const c=data.cultivars.find(x=>x.name===cn);
+                            if(!c) return null;
+                            return (
+                              <tr key={cn} style={{borderBottom:"1px solid #1e293b"}}>
+                                <td style={{padding:"4px 6px",fontWeight:600,color:"#e2e8f0",fontSize:"10px"}}>{cn}</td>
+                                {selVars.map(v=>{
+                                  const val=c.vars[v]?.[site]??(site!=="MEAN"?c.vars[v]?.MEAN:null);
+                                  const {r,total}=getRanks(data.cultivars,v,site);
+                                  return (
+                                    <td key={v} style={{padding:"4px 6px",textAlign:"center"}}>
+                                      {val!=null?(
+                                        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"2px"}}>
+                                          <span style={{fontWeight:700,color:sc(val)}}>{val.toFixed(1)}</span>
+                                          {total>0&&r[cn]&&<Rank rank={r[cn]} total={total}/>}
+                                        </div>
+                                      ):(
+                                        <span style={{color:"#475569"}}>-</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cultivar cards */}
+                {filtered.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#475569"}}>No cultivars match</div>}
+                {filtered.map(c=><CultivarCard key={c.name} c={c}/>)}
+
+                {/* Legend */}
+                <div style={{marginTop:"10px",background:"#1e293b",borderRadius:"9px",padding:"9px",fontSize:"10px",color:"#475569"}}>
+                  Ratings 1-9 (9=ideal).
+                  {[["7+","Excellent","#22c55e"],["6-6.9","Good","#84cc16"],["5-5.9","Avg","#eab308"],["<5","Poor","#ef4444"]].map(([r,l,c])=>(
+                    <span key={r} style={{marginLeft:"6px"}}><span style={{color:c}}>*</span> {r}={l}</span>
+                  ))}
+                  <br/>NC = non-commercial entry. Pin = sticky at top while scrolling. Top Group = within LSD of leader.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══ BY CULTIVAR ═══ */}
+        {tab==="cultivar"&&(
+          <div style={PAD}>
+            <div style={{fontWeight:700,fontSize:"14px",color:"#fff",marginBottom:"3px"}}>Search all trials by cultivar</div>
+            <div style={{fontSize:"11px",color:"#475569",marginBottom:"11px"}}>{Object.keys(CIDX).length}+ cultivars indexed across trial generations</div>
+            <input value={globQ} onChange={e=>setGlobQ(e.target.value)} placeholder="e.g. Midnight, Fiesta, Meyer, Tifway..."
+              style={{width:"100%",background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",borderRadius:"8px",padding:"12px 13px",fontSize:"15px",outline:"none",boxSizing:"border-box",marginBottom:"11px"}}/>
+            {globQ.length>=2&&globResults.length===0&&(
+              <div style={{background:"#1e293b",borderRadius:"9px",padding:"20px",textAlign:"center",color:"#475569"}}>No results for "{globQ}"</div>
+            )}
+            {globResults.map(([name,apps])=>(
+              <div key={name} style={{background:"#1e293b",borderRadius:"9px",padding:"12px 13px",border:"1px solid #334155",marginBottom:"8px"}}>
+                <div style={{fontWeight:700,fontSize:"14px",color:"#f1f5f9",marginBottom:"2px"}}>{name}</div>
+                <div style={{fontSize:"10px",color:"#475569",marginBottom:"8px"}}>{apps[0].sp} — {apps.length} trial{apps.length!==1?"s":""}</div>
+                {apps.map(a=>{
+                  const t=TRIALS.find(x=>x.id===a.id);
+                  const loaded=data?.trialId===a.id;
+                  return (
+                    <div key={a.id} style={{background:"#0f172a",borderRadius:"7px",padding:"8px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:"7px",marginBottom:"4px"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:"12px",color:"#cbd5e1",fontWeight:600}}>{t?.label||a.id}</div>
+                        {a.mean!=null?(
+                          <div style={{display:"flex",alignItems:"center",gap:"7px",marginTop:"3px"}}>
+                            <span style={{fontSize:"10px",color:"#475569"}}>Quality mean:</span>
+                            <span style={{fontSize:"13px",fontWeight:700,color:sc(a.mean)}}>{a.mean.toFixed(1)}</span>
+                          </div>
+                        ):(
+                          <div style={{fontSize:"10px",color:"#334155",marginTop:"2px"}}>Load trial to see scores</div>
+                        )}
+                      </div>
+                      <button onClick={()=>{go(a.id,false);}}
+                        style={{background:loaded?"#14532d":"#1e293b",border:"1px solid",borderColor:loaded?"#22c55e":"#334155",color:loaded?"#22c55e":"#94a3b8",borderRadius:"6px",padding:"6px 10px",fontSize:"11px",fontWeight:600,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
+                        {loaded?"Loaded":"Load trial"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            {globQ.length<2&&(
+              <div style={{background:"#1e293b",borderRadius:"9px",padding:"13px"}}>
+                <div style={{fontSize:"12px",color:"#64748b",lineHeight:"1.8",marginBottom:"11px"}}>
+                  Search any cultivar to see which trial generations it appeared in, its overall quality mean, and load directly to that trial.
+                </div>
+                <div style={{display:"flex",gap:"5px",flexWrap:"wrap"}}>
+                  {["Midnight","Kenblue","Fiesta","Meyer","Celebration","Floratam","Patriot","Emerald","Accent II","Tifway"].map(s=>(
+                    <button key={s} onClick={()=>setGlobQ(s)} style={{background:"#0f172a",border:"1px solid #334155",color:"#64748b",borderRadius:"5px",padding:"4px 9px",fontSize:"11px",cursor:"pointer"}}>{s}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══ BY SPECIES ═══ */}
+        {tab==="species"&&(
+          <div style={PAD}>
+            <div style={{fontWeight:700,fontSize:"14px",color:"#fff",marginBottom:"3px"}}>Browse by species</div>
+            <div style={{fontSize:"11px",color:"#475569",marginBottom:"11px"}}>All trial generations for a species in one place.</div>
+            {!selSp?(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:"6px"}}>
+                {SPECIES.map(sp=>{
+                  const count=TRIALS.filter(t=>t.species===sp).length;
+                  return (
+                    <button key={sp} onClick={()=>setSelSp(sp)}
+                      style={{background:"#1e293b",border:"1px solid #334155",borderRadius:"9px",padding:"12px",textAlign:"left",cursor:"pointer",color:"#e2e8f0",display:"flex",flexDirection:"column",gap:"4px"}}>
+                      <div style={{fontWeight:700,fontSize:"12px"}}>{sp}</div>
+                      <div style={{fontSize:"10px",color:"#475569"}}>{count} trial{count!==1?"s":""}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            ):(
+              <div>
+                <button onClick={()=>setSelSp(null)} style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:"7px",padding:"6px 10px",cursor:"pointer",fontSize:"12px",marginBottom:"10px"}}>Back to all species</button>
+                <div style={{fontWeight:700,fontSize:"15px",color:"#fff",marginBottom:"9px"}}>{selSp}</div>
+                {TRIALS.filter(t=>t.species===selSp).map(t=>(
+                  <button key={t.id} onClick={()=>{go(t.id);setTab("trial");}}
+                    style={{width:"100%",background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",borderRadius:"7px",padding:"10px 12px",textAlign:"left",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"7px",fontSize:"12px",marginBottom:"4px"}}>
+                    <span style={{flex:1}}>{t.label}</span>
+                    <div style={{display:"flex",gap:"4px",alignItems:"center"}}>
+                      {chas(t.id)&&<Tag text="cached" bg="#1e3a5f"/>}
+                      <span style={{color:"#22c55e",fontSize:"11px"}}>Load</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+
+      <footer style={{background:"#1e293b",borderTop:"1px solid #334155",padding:"6px 13px",fontSize:"10px",color:"#334155",textAlign:"center",flexShrink:0}}>
+        Data (c) NTEP — 1-9 scale, 9=ideal — Not affiliated with NTEP or UMN
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
