@@ -213,6 +213,45 @@ function isTop(val,all,lsd){
   return lsd&&all.length>0?(Math.max(...all)-val)<=lsd:false;
 }
 
+
+/* ── Compare card abbreviations ────────────────────────────────────── */
+const CMP_ABBR = {
+  'QUALITY Overall':'Quality','QUALITY Spring':'Q.Spring','QUALITY Summer':'Q.Summer',
+  'QUALITY Fall':'Q.Fall','QUALITY Winter':'Q.Winter',
+  'GENETIC COLOR':'G.Color','WINTER COLOR':'W.Color','SUMMER COLOR':'S.Color',
+  'LEAF TEXTURE':'Texture','DENSITY Spring':'D.Spring','DENSITY Summer':'D.Summer',
+  'DENSITY Fall':'D.Fall','WEAR TOLERANCE':'Wear','SEEDLING VIGOR':'Vigor',
+  'GREENUP':'Greenup','CANOPY HEIGHT':'Height','DROUGHT Wilting':'Wilting',
+  'DROUGHT Recovery':'Recovery','DORMANCY':'Dormancy','WINTER KILL':'W.Kill',
+  'FROST TOLERANCE':'F.Tol','THATCH':'Thatch','STEMINESS':'Steminess',
+  'POA ANNUA Invasion':'Poa Inv.','PERCENT Weeds':'Weeds%','PERCENT Poa annua':'Poa%',
+  'PERCENT Crabgrass':'Crab%','FLOOD RECOVERY':'Fl.Rec','SCALPING RATING':'Scalp',
+  'SOD STRENGTH':'Sod Str.','MOWING QUALITY':'Mow.Q','VERTICAL GROWTH':'V.Growth',
+  'INSECT Rating':'Insects','INSECTS Sod webworm':'Webworm','INSECTS Billbugs':'Billbugs',
+  'INSECTS Chinch bug':'Chinch','INSECTS Aphids':'Aphids','INSECTS White grub':'W.Grub',
+  'DISEASES Dead spot':'Dead Sp.','DISEASES Dollar spot':'D.Spot',
+  'DISEASES Necrotic ring spot':'NRS','DISEASES Brown patch (warm)':'B.P.Warm',
+  'DISEASES Brown patch (cool)':'B.P.Cool','DISEASES Crown rust':'Cr.Rust',
+  'DISEASES Gray leaf spot':'G.L.Spot','DISEASES Pythium blight':'Pythium',
+  'DISEASES Typhula blight':'Typhula','DISEASES Fusarium patch':'Fus.Patch',
+  'DISEASES Melting-out spring':'M.O.Spr','DISEASES Melting-out fall':'M.O.Fall',
+  'DISEASES Anthracnose':'Anthrac.','DISEASES Summer patch':'S.Patch',
+  'DISEASES Leaf spot':'L.Spot','DISEASES Stem rust':'St.Rust',
+  'DISEASES Red thread':'R.Thread','DISEASES Stripe smut':'Str.Smut',
+  'DISEASES Powdery mildew':'P.Mildew','DISEASES Fusarium blight':'Fus.Bl.',
+  'DISEASES Leaf rust':'L.Rust','DISEASES Pink snow mold':'P.S.Mold',
+  'DISEASES Snow mold':'Sn.Mold','DISEASES Pink patch':'P.Patch',
+  'DISEASES Microdochium patch':'Micro.P','DISEASES Take-all patch':'T.A.Patch',
+  'DISEASES Pythium root rot':'Py.Rot','DISEASES Fairy ring':'F.Ring',
+  'DISEASES Damping off':'Damp.Off','DISEASES Flag smut':'Fl.Smut',
+  'PERCENT Leaf spot':'LS%','PERCENT Leaf disease':'LD%','PERCENT Patch disease':'PD%',
+  'PERCENT Dollar spot':'DS%','PERCENT Brown patch':'BP%',
+  'PERCENT Typhula blight':'TB%','PERCENT Red thread':'RT%',
+  'PERCENT Establishment':'Est%','GROUND COVER Spring':'GC.Spr',
+  'GROUND COVER Summer':'GC.Sum','GROUND COVER Fall':'GC.Fall',
+};
+function cmpLabel(v){ return CMP_ABBR[v] || v.split(' ').pop(); }
+
 /* ── App ─────────────────────────────────────────────────────────────── */
 function App(){
   const [tab,setTab]         = useState("trial");
@@ -598,7 +637,7 @@ function App(){
                               const isActive=cmpSort.v===v;
                               const arr=isActive?(cmpSort.dir==="desc"?"▲":"▼"):"↕";
                               return <th key={v} style={{textAlign:"center",padding:"4px 6px",color:"#475569",borderBottom:"1px solid #334155",whiteSpace:"nowrap"}}>
-                                {v.split(" ").pop()}
+                                {cmpLabel(v)}
                                 <button onClick={()=>setCmpSort(p=>p.v===v?{v,dir:p.dir==="desc"?"asc":"desc"}:{v,dir:"desc"})}
                                   style={{background:"none",border:"none",color:isActive?"#22c55e":"#475569",cursor:"pointer",fontSize:"10px",marginLeft:"3px",padding:0}}>
                                   {arr}
