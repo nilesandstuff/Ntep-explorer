@@ -228,7 +228,6 @@ function App(){
   const [cvSearch,setCvSearch]= useState("");
   const [showNC,setShowNC]   = useState(false);
   const [compared,setCompared]= useState([]);
-  const [overrides,setOverrides]=useState({});
 
 
   const [globQ,setGlobQ]     = useState("");
@@ -236,18 +235,13 @@ function App(){
 
   const [tSearch,setTSearch] = useState("");
 
-  useEffect(()=>{
-    try{const s=localStorage.getItem("ntep_sf_v3");if(s)setOverrides(JSON.parse(s));}catch(_){}
-  },[]);
-
 
 
   const go=useCallback(async(id,force=false)=>{
     const trial=TRIALS.find(t=>t.id===id);
     if(!trial) return;
     setSelId(id); setCompared([]); setSite("MEAN");
-    setCvSearch(""); setErrMsg(""); setPtRes(null);
-    setSfDraft(overrides[id]||"");
+    setCvSearch(""); setErrMsg(""); 
 
     if(!force){
       const hit=cget(id);
@@ -277,7 +271,7 @@ function App(){
         setErrMsg(e.message); setView("error");
       }
     }
-  },[overrides]);
+  },[]);
 
   /* filtered + sorted cultivars */
   const filtered=useMemo(()=>{
