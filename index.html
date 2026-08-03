@@ -99,6 +99,10 @@ const TRIALS=[
   {id:"cs22w",label:"2022 Cool-Season Fairway Water Use (2023-25)",species:"Cool-Season Water Use",years:"2023-25"},
   {id:"cs16w",label:"2016 Cool-Season Water Use (2017-20)",species:"Cool-Season Water Use",years:"2017-20"},
   {id:"cs15l",label:"2015 Cool-Season Low Input (2015-20)",species:"Cool-Season Low Input",years:"2015-20"},
+  {id:"ws18w",label:"2018 Warm-Season Water Use Drought (2021-22)",species:"Warm-Season Water Use",years:"2021-22"},
+  {id:"ws18l",label:"2018 Warm-Season Low Input (2018-22)",species:"Warm-Season Low Input",years:"2018-22"},
+  {id:"ws13g",label:"2013 Warm-Season Putting Green (2013-17)",species:"Warm-Season Putting Green",years:"2013-17"},
+  {id:"ws19g",label:"2019 Warm-Season Putting Green (2021-23)",species:"Warm-Season Putting Green",years:"2021-23"},
   {id:"sa23",label:"2023 St. Augustinegrass (2023-25)",species:"St. Augustinegrass",years:"2023-25"},
   {id:"sa16",label:"2016 St. Augustinegrass (2017-20)",species:"St. Augustinegrass",years:"2017-20"},
   {id:"sa07",label:"2007 St. Augustinegrass (2007-12)",species:"St. Augustinegrass",years:"2007-12"},
@@ -880,7 +884,7 @@ function App(){
             {globQ.trim().length<2&&(
               <div style={{background:"#1e293b",borderRadius:"9px",padding:"13px"}}>
                 <div style={{fontSize:"12px",color:"#64748b",lineHeight:"1.8",marginBottom:"11px"}}>
-                  Search any cultivar across all cached trials.
+                  Search any cultivar across all cached trials. Results come from your Drive cache — load more trials to expand coverage.
                 </div>
               </div>
             )}
