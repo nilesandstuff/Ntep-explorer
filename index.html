@@ -622,7 +622,7 @@ function App(){
           <div style={{width:"26px",height:"26px",background:"#22c55e",borderRadius:"6px",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:"#000",fontSize:"14px",flexShrink:0}}>N</div>
           <div>
             <div style={{fontWeight:800,fontSize:"15px",color:"#fff",lineHeight:1}}>NTEP Explorer</div>
-            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>NTEP data</div>
+            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>NTEP data · v0.8</div>
           </div>
         </div>
         <div style={{display:"flex",gap:"6px"}}>
@@ -714,8 +714,7 @@ function App(){
                       {data.hits&&!data._demo&&<Tag text={"Live — "+data.hits+" tables"} bg="#166534"/>}
                     </div>
                     <div style={{fontSize:"11px",color:"#475569",marginTop:"2px"}}>{data.cultivars.length} cultivars{data.dataYears?" — "+data.dataYears:""}{data.sf?" — subfolder: "+data.sf:""}</div>
-                    <button onClick={()=>{cdel(selId);go(selId,true);}}
-                      style={{marginTop:"5px",background:"transparent",border:"1px solid #334155",color:"#64748b",borderRadius:"5px",padding:"3px 9px",fontSize:"10px",cursor:"pointer"}}>Refresh from NTEP</button>
+
                   </div>
                 </div>
 
@@ -931,7 +930,7 @@ function App(){
       </div>
 
       <footer style={{background:"#1e293b",borderTop:"1px solid #334155",padding:"6px 13px",fontSize:"10px",color:"#334155",textAlign:"center",flexShrink:0}}>
-        Data (c) NTEP — 1-9 scale, 9=ideal — Not affiliated with NTEP or UMN
+        v0.8 · Data © NTEP — 1-9 scale, 9=ideal — Not affiliated with NTEP
       </footer>
     </div>
   );
