@@ -96,7 +96,7 @@ const TRIALS=[
   {id:"pr10",label:"2010 Perennial Ryegrass (2010-14)",species:"Perennial Ryegrass",years:"2010-14"},
   {id:"pr04",label:"2004 Perennial Ryegrass (2005-09)",species:"Perennial Ryegrass",years:"2005-09"},
   {id:"pr99",label:"1999 Perennial Ryegrass (1999-03)",species:"Perennial Ryegrass",years:"1999-03"},
-  {id:"cs22w",label:"2022 Cool-Season Fairway Water Use (2023-25)",species:"Cool-Season Fairway Water Use",years:"2023-25"},
+  {id:"cs22w",label:"2022 Cool-Season Fairway Water Use (2023-25)",species:"Cool-Season Water Use",years:"2023-25"},
   {id:"cs16w",label:"2016 Cool-Season Water Use (2017-20)",species:"Cool-Season Water Use",years:"2017-20"},
   {id:"cs15l",label:"2015 Cool-Season Low Input (2015-20)",species:"Cool-Season Low Input",years:"2015-20"},
   {id:"sa23",label:"2023 St. Augustinegrass (2023-25)",species:"St. Augustinegrass",years:"2023-25"},
@@ -211,6 +211,89 @@ function getRanks(cultivars,vk,site){
 
 function isTop(val,all,lsd){
   return lsd&&all.length>0?(Math.max(...all)-val)<=lsd:false;
+}
+
+
+/* ── SiteConditionCard ─────────────────────────────────────────────────
+   Future-proofed to accept any siteCode; render multiple for multi-select.
+   Starts collapsed. Fetches/caches site conditions per trial (Drive-backed). */
+const SITE_ROWS = [
+  ['texture','Soil texture'],['ph','Soil pH'],['phosphorus','Phosphorus'],
+  ['potassium','Potassium'],['nitrogen','Nitrogen'],['shade','Shade'],
+  ['mowing','Mowing height'],['irrigation','Irrigation'],['traffic','Traffic'],
+];
+
+function SiteConditionCard({siteCode, trialId}) {
+  const [open,    setOpen]    = useState(false);
+  const [siteData,setSiteData]= useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err,     setErr]     = useState(null);
+
+  useEffect(()=>{
+    setLoading(true); setErr(null); setSiteData(null);
+    fetch(PROXY+'?action=site_conditions&trial_id='+trialId,{cache:'no-store'})
+      .then(r=>r.json())
+      .then(d=>{
+        if(d.error){setErr(d.error);}
+        else{setSiteData(d[siteCode]||null);}
+        setLoading(false);
+      })
+      .catch(e=>{setErr(e.message);setLoading(false);});
+  },[trialId, siteCode]);
+
+  const years = siteData ? Object.keys(siteData.years).sort() : [];
+
+  return (
+    <div style={{background:'#1e293b',borderRadius:'8px',border:'1px solid #334155',marginBottom:'6px',overflow:'hidden'}}>
+      {/* Header — always visible */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 12px'}}>
+        <div>
+          <span style={{fontWeight:700,fontSize:'12px',color:'#f1f5f9'}}>{siteCode}</span>
+          {siteData&&<span style={{fontSize:'11px',color:'#64748b',marginLeft:'7px'}}>{siteData.name}</span>}
+        </div>
+        <button onClick={()=>setOpen(o=>!o)}
+          style={{background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:'11px',display:'flex',alignItems:'center',gap:'4px',padding:'2px 0'}}>
+          {loading?'Loading...'
+            :err?<span style={{color:'#ef4444'}}>Unavailable</span>
+            :!siteData?<span style={{color:'#475569'}}>No data</span>
+            :<>{open?'Hide site conditions ▲':'Show site conditions ▼'}</>}
+        </button>
+      </div>
+      {/* Expanded content */}
+      {open&&siteData&&(
+        <div style={{overflowX:'auto',borderTop:'1px solid #334155'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px',minWidth:'260px'}}>
+            <thead>
+              <tr style={{background:'#0f172a'}}>
+                <th style={{textAlign:'left',padding:'5px 10px',color:'#475569',fontWeight:600,whiteSpace:'nowrap'}}></th>
+                {years.map(y=>(
+                  <th key={y} style={{textAlign:'center',padding:'5px 10px',color:'#94a3b8',fontWeight:600,whiteSpace:'nowrap'}}>
+                    {years.length>1?("'"+String(y).slice(-2)):y}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {SITE_ROWS.map(([key,label])=>{
+                const vals = years.map(y=>siteData.years[y]?.[key]);
+                if(vals.every(v=>!v)) return null;
+                return (
+                  <tr key={key} style={{borderTop:'1px solid #1e293b'}}>
+                    <td style={{padding:'5px 10px',color:'#64748b',whiteSpace:'nowrap',fontWeight:500}}>{label}</td>
+                    {vals.map((v,i)=>(
+                      <td key={i} style={{padding:'5px 10px',textAlign:'center',color:'#e2e8f0'}}>
+                        {v||<span style={{color:'#334155'}}>—</span>}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
 
@@ -627,6 +710,11 @@ function App(){
                     </label>
                   </div>
                 </div>
+
+                {/* Site conditions card — shows when a specific site is selected */}
+                {site!=="MEAN"&&data&&selId&&(
+                  <SiteConditionCard key={site} siteCode={site} trialId={selId}/>
+                )}
 
                 {/* Compare strip */}
                 {compared.length>0&&(
