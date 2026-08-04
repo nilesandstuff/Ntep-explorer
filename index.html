@@ -4,6 +4,13 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>NTEP Turfgrass Explorer</title>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-R581RHV8J4"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-R581RHV8J4');
+</script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -19,6 +26,11 @@ details>summary::-webkit-details-marker{display:none;}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useMemo,useCallback,useEffect,useRef} = React;
+
+/* ── Analytics ─────────────────────────────────────────────────────────── */
+function track(evt, params) {
+  try { window.gtag && window.gtag('event', evt, params||{}); } catch(_) {}
+}
 
 /* ── constants ─────────────────────────────────────────────────────── */
 const PROXY = "https://script.google.com/macros/s/AKfycbzG478BC2WFHqYJ9C-HSg-jox3GOJxKrfy5xu-AAr3iwooa6vn2RrKSWxxOljDjIsLT/exec";
@@ -278,7 +290,7 @@ function SiteConditionCard({siteCode, trialId}) {
           <span style={{fontWeight:700,fontSize:'12px',color:'#f1f5f9'}}>{siteCode}</span>
           {siteData&&<span style={{fontSize:'11px',color:'#64748b',marginLeft:'7px'}}>{siteData.name}</span>}
         </div>
-        <button onClick={()=>setOpen(o=>!o)}
+        <button onClick={()=>{const opening=!open;setOpen(o=>!o);if(opening)track('site_conditions_open',{site:siteCode,trial_id:trialId});}}
           style={{background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:'11px',display:'flex',alignItems:'center',gap:'4px',padding:'2px 0'}}>
           {loading?'Loading...'
             :err?<span style={{color:'#ef4444'}}>Unavailable</span>
@@ -404,7 +416,7 @@ function App(){
     if(!force){
       const hit=cget(id);
       if(hit){
-        setData(hit.data); setCacheAge(Date.now()-hit.ts);
+        setData(hit.data); setCacheAge(Date.now()-hit.ts); track('trial_load',{trial_id:id,source:'browser_cache'});
         setSelVars([hit.data.vars[0]||"QUALITY Overall"]);
         setSortV(hit.data.vars[0]||"QUALITY Overall");
         setView("trial"); setTab("trial"); return;
@@ -415,7 +427,7 @@ function App(){
 
     try{
       const d=await loadFromProxy(id,trial,p=>setProg(p),force);
-      cset(id,d); setData(d); setCacheAge(null);
+      cset(id,d); setData(d); setCacheAge(null); track('trial_load',{trial_id:id,source:'proxy'});
       setSelVars([d.vars[0]||"QUALITY Overall"]);
       setSortV(d.vars[0]||"QUALITY Overall");
       setView("trial");
@@ -438,7 +450,7 @@ function App(){
     const timer = setTimeout(()=>{
       fetch(PROXY+'?action=cultivar_search&q='+encodeURIComponent(globQ.trim()),{cache:'no-store'})
         .then(r=>r.json())
-        .then(data=>{ setGlobResults(Array.isArray(data)?data:[]); setGlobLoading(false); })
+        .then(data=>{ const res=Array.isArray(data)?data:[]; setGlobResults(res); setGlobLoading(false); track('cultivar_search',{results:res.length}); })
         .catch(()=>{ setGlobResults([]); setGlobLoading(false); });
     }, 350);
     return ()=>clearTimeout(timer);
@@ -573,7 +585,7 @@ function App(){
           </div>
           <div style={{display:"flex",gap:"3px",flexShrink:0}}>
 
-            <button onClick={()=>setCompared(p=>ic?p.filter(x=>x!==c.name):[...p,c.name])}
+            <button onClick={()=>{const adding=!ic;setCompared(p=>ic?p.filter(x=>x!==c.name):[...p,c.name]);if(adding)track('compare_add',{trial_id:selId});}}
               style={{background:ic?"#0f2337":"#0f172a",border:"1px solid",borderColor:ic?"#3b82f6":"#334155",
                 color:ic?"#60a5fa":"#475569",borderRadius:"5px",padding:"4px 7px",cursor:"pointer",fontSize:"11px",fontWeight:600}}>
               Cmp
@@ -627,9 +639,11 @@ function App(){
   const handleExpand = useCallback((name)=>{
     const el = scrollRef.current;
     const top = el ? el.scrollTop : 0;
+    const willOpen = expanded !== name;
     setExpanded(p => p===name ? null : name);
     if (el) requestAnimationFrame(()=>{ el.scrollTop = top; });
-  }, []);
+    if (willOpen) track('cross_trial_open', {trial_id:selId});
+  }, [expanded, selId]);
 
   const PAD={padding:"13px",maxWidth:"880px",margin:"0 auto"};
 
@@ -643,7 +657,7 @@ function App(){
           <div style={{width:"26px",height:"26px",background:"#22c55e",borderRadius:"6px",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:"#000",fontSize:"14px",flexShrink:0}}>N</div>
           <div>
             <div style={{fontWeight:800,fontSize:"15px",color:"#fff",lineHeight:1}}>NTEP Explorer</div>
-            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>NTEP data · v0.91</div>
+            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>NTEP data · v0.91.1</div>
           </div>
         </div>
         <div style={{display:"flex",gap:"6px"}}>
@@ -654,7 +668,7 @@ function App(){
       {/* Tabs */}
       <div style={{display:"flex",background:"#1e293b",borderBottom:"1px solid #334155",flexShrink:0}}>
         {[["trial","By Trial"],["cultivar","By Cultivar"],["species","By Species"]].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:"10px 5px",background:tab===id?"#0f172a":"transparent",color:tab===id?"#22c55e":"#64748b",border:"none",borderBottom:tab===id?"2px solid #22c55e":"2px solid transparent",cursor:"pointer",fontSize:"11px",fontWeight:tab===id?700:500}}>
+          <button key={id} onClick={()=>{setTab(id);track("tab_switch",{tab:id});}} style={{flex:1,padding:"10px 5px",background:tab===id?"#0f172a":"transparent",color:tab===id?"#22c55e":"#64748b",border:"none",borderBottom:tab===id?"2px solid #22c55e":"2px solid transparent",cursor:"pointer",fontSize:"11px",fontWeight:tab===id?700:500}}>
             {lbl}
           </button>
         ))}
@@ -746,14 +760,14 @@ function App(){
                   <div style={{marginBottom:"8px"}}>
                     <div style={{fontSize:"10px",color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:".5px",marginBottom:"4px"}}>Site</div>
                     <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
-                      {data.sites.map(s=><Pill key={s} active={site===s} onClick={()=>setSite(s)} label={s}/>)}
+                      {data.sites.map(s=><Pill key={s} active={site===s} onClick={()=>{setSite(s);track('site_select',{site:s,trial_id:selId});}} label={s}/>)}
                     </div>
                   </div>
                   <div style={{marginBottom:"8px"}}>
                     <div style={{fontSize:"10px",color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:".5px",marginBottom:"4px"}}>Variables (tap to toggle)</div>
                     <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
                       {data.vars.map(v=><Pill key={v} active={selVars.includes(v)}
-                        onClick={()=>setSelVars(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v])}
+                        onClick={()=>{const adding=!selVars.includes(v);setSelVars(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v]);track('variable_toggle',{variable:v,action:adding?'add':'remove'});}}
                         label={v.replace("DISEASES ","D: ")}/>)}
                     </div>
                   </div>
@@ -951,7 +965,7 @@ function App(){
       </div>
 
       <footer style={{background:"#1e293b",borderTop:"1px solid #334155",padding:"6px 13px",fontSize:"10px",color:"#334155",textAlign:"center",flexShrink:0}}>
-        v0.9 · Data © NTEP — 1-9 scale, 9=ideal — Not affiliated with NTEP
+        v0.91.1 · Data © NTEP — 1-9 scale, 9=ideal — Not affiliated with NTEP
       </footer>
     </div>
   );
