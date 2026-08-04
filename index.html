@@ -465,62 +465,79 @@ function App(){
 
 
 
-  /* Cross-trial history — queries Drive index via proxy */
-  function CrossTrialHistory({name, currentVar}) {
+    /* Cross-trial history — queries Drive index via proxy */
+  function CrossTrialHistory({name, selVars, site}) {
     const [rows, setRows] = useState(null);
-    const [err, setErr]   = useState(null);
+    const [err,  setErr]  = useState(null);
+    const varsKey = selVars.join(',');
+
     useEffect(()=>{
       setRows(null); setErr(null);
-      const varParam = currentVar !== 'QUALITY Overall' ? '&var=' + encodeURIComponent(currentVar) : '';
-      fetch(PROXY + '?action=cultivar_history&name=' + encodeURIComponent(name) + varParam, {cache:'no-store'})
-        .then(r => r.json())
-        .then(data => {
-          if (data.error) { setErr(data.error); return; }
-          setRows(Array.isArray(data) ? data.filter(r => r.trialId !== selId) : []);
+      const params = '?action=cultivar_history'
+        + '&name=' + encodeURIComponent(name)
+        + '&vars=' + encodeURIComponent(varsKey)
+        + '&site=' + encodeURIComponent(site||'MEAN');
+      fetch(PROXY + params, {cache:'no-store'})
+        .then(r=>r.json())
+        .then(data=>{
+          if(data.error){setErr(data.error);return;}
+          setRows(Array.isArray(data)?data.filter(r=>r.trialId!==selId):[]);
         })
-        .catch(e => setErr(e.message));
-    }, [name, currentVar]);
+        .catch(e=>setErr(e.message));
+    },[name, varsKey, site]);
 
     const sc2 = v => v>=7?"#22c55e":v>=6?"#84cc16":v>=5?"#eab308":"#ef4444";
-    if (err) return <div style={{color:'#ef4444',fontSize:'11px',padding:'6px 0'}}>Error: {err}</div>;
-    if (!rows) return <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>Loading cross-trial history...</div>;
-    if (rows.length === 0) return (
-      <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>
-        This cultivar has not been found in any other cached trials yet. Load more trials to build the index.
-      </div>
+    const isNonMeanSite = site && site!=='MEAN';
+
+    if(err)   return <div style={{color:'#ef4444',fontSize:'11px',padding:'6px 0'}}>Error: {err}</div>;
+    if(!rows) return <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>Loading cross-trial history...</div>;
+    if(!rows.length) return (
+      <div style={{color:'#475569',fontSize:'11px',padding:'6px 0'}}>Not found in any other cached trials.</div>
     );
+
     return (
       <div style={{marginTop:'8px'}}>
         <div style={{fontSize:'10px',fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:'5px'}}>
           In other trials
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
-          {rows.map(r=>(
-            <div key={r.trialId} style={{background:'#0f172a',borderRadius:'6px',padding:'7px 10px',fontSize:'11px'}}>
-              <div style={{fontWeight:600,color:'#cbd5e1',marginBottom:'4px',overflowWrap:'break-word',wordBreak:'break-word',maxWidth:'100%',lineHeight:'1.4'}}>
-                {(TRIALS.find(t=>t.id===r.trialId)||{}).label||r.trialLabel||r.trialId}
-              </div>
-              <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
-                {r.qMean!=null && (
-                  <span>
-                    <span style={{color:'#475569'}}>Quality: </span>
-                    <span style={{fontWeight:700,color:sc2(r.qMean)}}>{r.qMean.toFixed(1)}</span>
-                    {r.qRank!=null && <span style={{color:'#475569'}}> #{r.qRank}/{r.qTotal}</span>}
-                  </span>
+        <div style={{display:'flex',flexDirection:'column',gap:'6px'}}>
+          {rows.map(r=>{
+            const trialLabel=(TRIALS.find(t=>t.id===r.trialId)||{}).label||r.trialLabel||r.trialId;
+            return (
+              <div key={r.trialId} style={{background:'#0f172a',borderRadius:'6px',padding:'8px 10px',fontSize:'11px'}}>
+                <div style={{fontWeight:600,color:'#cbd5e1',marginBottom:'5px',overflowWrap:'break-word',lineHeight:'1.4'}}>
+                  {trialLabel}
+                </div>
+                {isNonMeanSite&&!r.siteInTrial&&(
+                  <div style={{color:'#475569',fontStyle:'italic',fontSize:'10px',marginBottom:'4px'}}>
+                    {site} not in this trial — showing trial averages
+                  </div>
                 )}
-                {currentVar!=='QUALITY Overall' && (
-                  <span>
-                    <span style={{color:'#475569'}}>{CMP_ABBR[currentVar]||currentVar.split(' ').slice(-1)[0]}: </span>
-                    {r.varMean!=null
-                      ? <><span style={{fontWeight:700,color:sc2(r.varMean)}}>{r.varMean.toFixed(1)}</span>
-                          {r.varRank!=null && <span style={{color:'#475569'}}> #{r.varRank}/{r.varTotal}</span>}</>
-                      : <span style={{color:'#334155',fontStyle:'italic'}}>N/A</span>
-                    }
-                  </span>
-                )}
+                <div style={{display:'flex',flexDirection:'column',gap:'3px'}}>
+                  {selVars.map(vk=>{
+                    const vd=r.vars?r.vars[vk]:undefined;
+                    return (
+                      <div key={vk} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
+                        <span style={{color:'#475569',fontSize:'10px',flexShrink:0}}>
+                          {CMP_ABBR[vk]||vk.split(' ').pop()}
+                          {vd&&vd.usingMean&&<span style={{color:'#334155'}}> (avg)</span>}
+                        </span>
+                        {vd===null||vd===undefined
+                          ? <span style={{color:'#334155',fontStyle:'italic',fontSize:'10px'}}>N/A</span>
+                          : vd.val!=null
+                            ? <span style={{display:'flex',alignItems:'center',gap:'5px'}}>
+                                <span style={{fontWeight:700,color:sc2(vd.val)}}>{vd.val.toFixed(1)}</span>
+                                {vd.rank&&<span style={{color:'#475569',fontSize:'10px'}}>#{vd.rank}/{vd.total}</span>}
+                              </span>
+                            : <span style={{color:'#334155',fontStyle:'italic',fontSize:'10px'}}>N/A</span>
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -598,7 +615,7 @@ function App(){
           style={{marginTop:"7px",width:"100%",background:"transparent",border:"1px solid #334155",color:"#64748b",borderRadius:"5px",padding:"4px",fontSize:"10px",cursor:"pointer",textAlign:"center"}}>
           {expanded===c.name?"Hide cross-trial history":"Show in other trials"}
         </button>
-        {expanded===c.name&&<CrossTrialHistory name={c.name} currentVar={sortV}/>}
+        {expanded===c.name&&<CrossTrialHistory name={c.name} selVars={selVars} site={site}/>}
       </div>
     );
   }
@@ -622,7 +639,7 @@ function App(){
           <div style={{width:"26px",height:"26px",background:"#22c55e",borderRadius:"6px",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:"#000",fontSize:"14px",flexShrink:0}}>N</div>
           <div>
             <div style={{fontWeight:800,fontSize:"15px",color:"#fff",lineHeight:1}}>NTEP Explorer</div>
-            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>NTEP data · v0.8</div>
+            <div style={{fontSize:"10px",color:"#22c55e",marginTop:"1px"}}>NTEP data · v0.9</div>
           </div>
         </div>
         <div style={{display:"flex",gap:"6px"}}>
@@ -930,7 +947,7 @@ function App(){
       </div>
 
       <footer style={{background:"#1e293b",borderTop:"1px solid #334155",padding:"6px 13px",fontSize:"10px",color:"#334155",textAlign:"center",flexShrink:0}}>
-        v0.8 · Data © NTEP — 1-9 scale, 9=ideal — Not affiliated with NTEP
+        v0.9 · Data © NTEP — 1-9 scale, 9=ideal — Not affiliated with NTEP
       </footer>
     </div>
   );
