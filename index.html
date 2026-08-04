@@ -478,7 +478,11 @@ function App(){
         + '&vars=' + encodeURIComponent(varsKey)
         + '&site=' + encodeURIComponent(site||'MEAN');
       fetch(PROXY + params, {cache:'no-store'})
-        .then(r=>r.json())
+        .then(r=>{
+          const ct = r.headers.get('content-type')||'';
+          if(!ct.includes('json')) throw new Error('Proxy error (HTTP '+r.status+') — check Apps Script logs');
+          return r.json();
+        })
         .then(data=>{
           if(data.error){setErr(data.error);return;}
           setRows(Array.isArray(data)?data.filter(r=>r.trialId!==selId):[]);
